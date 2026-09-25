@@ -899,9 +899,9 @@
       <div class="card" style="overflow-x:auto">
         <table class="table"><thead><tr><th style="width:26px"></th><th>Area</th><th>What came back</th><th>Endpoint</th></tr></thead>
         <tbody>${r.rows.map((x) => h`<tr>
-          <td><span class="status-dot ${x.ok ? 'ok' : x.optional ? '' : 'bad'}" title="${x.ok ? 'Answered' : x.optional ? 'Not available (optional module)' : 'Failed'}"></span></td>
+          <td><span class="status-dot ${x.ok ? 'ok' : x.optional ? '' : 'bad'}" title="${x.ok ? 'Answered' : x.optional ? 'Not available on this server' : 'Failed'}"></span></td>
           <td class="nowrap"><b>${x.area}</b></td>
-          <td>${x.detail}${x.node && x.node.links ? h` · <a href="${x.node.links.smart}" target="_blank" rel="noopener">open</a>` : ''}${!x.ok && x.optional ? h` <span class="faint">(optional module)</span>` : ''}</td>
+          <td>${x.detail}${x.node && x.node.links ? h` · <a href="${x.node.links.smart}" target="_blank" rel="noopener">open</a>` : ''}${!x.ok && x.note ? h` <span class="faint">(${x.note})</span>` : ''}</td>
           <td class="mono small faint">${x.endpoint || ''}</td>
         </tr>`)}</tbody></table>
       </div>

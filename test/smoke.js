@@ -373,6 +373,30 @@ async function main() {
     assert.equal((await check('u03-delete')).result.status, 'pass');
   });
 
+  await step('a server without the Recycle Bin endpoint (as Content Server 22.3 answers): "no such node" confirms deletion', async () => {
+    mock.state.answers.push([/^\/api\/v2\/volumes\/recyclebin\/nodes$/, 400, 'Invalid datatype specified for argument "volume_subtype".']);
+    try {
+      const tmp4 = await cs.create({ type: 0, parent_id: sandbox, name: 'Scratch - delete me' });
+      assert.equal((await check('u03-temp')).result.status, 'pass');
+      let r = await check('u03-delete');
+      assert.equal(r.result.status, 'fail');
+      assert.match(r.result.results[0].detail, /still exists in “OT Academy”/);
+      await cs.del(tmp4);
+      r = await check('u03-delete');
+      assert.equal(r.result.status, 'pass');
+      assert.match(r.result.results[0].detail, /no longer returns/);
+
+      const c = await call('GET', '/api/connection');
+      const bin = c.body.rows.find((x) => x.area === 'Recycle Bin');
+      assert.equal(bin.ok, false);
+      assert.equal(bin.optional, true);
+      assert.match(bin.detail, /HTTP 400: Invalid datatype/);
+      assert.match(bin.note, /no longer returns the item/);
+    } finally {
+      mock.state.answers.length = 0;
+    }
+  });
+
   await step('shortcut must point at the right document (original_id is only in the v1 answer)', async () => {
     const other = await cs.create({ type: 144, parent_id: drafts, name: 'Other.txt' });
     const sc = await cs.create({ type: 1, parent_id: review, name: 'Shortcut', original_id: other });

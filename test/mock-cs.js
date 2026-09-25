@@ -50,6 +50,8 @@ function createState() {
     unsupported: [/^\/api\/v2\/businessworkspacetypes$/],
     // Paths that fail with an internal server error (to test that errors never pass).
     broken: [],
+    // [path regex, HTTP status, error text]: how a particular server version answers a path.
+    answers: [],
     // Every request for an endpoint this mock doesn't implement; the test expects none.
     unknown: [],
   };
@@ -199,6 +201,8 @@ function createMockCS({ version = '16.2.4' } = {}) {
     let m;
 
     if (s.broken.some((re) => re.test(path))) return send(res, 500, { error: 'Internal error while processing the request' });
+    const canned = s.answers.find(([re]) => re.test(path));
+    if (canned) return send(res, canned[1], { error: canned[2] });
     if (s.unsupported.some((re) => re.test(path))) return send(res, 400, { error: NOT_MAPPED });
 
     // ---- public endpoints ----

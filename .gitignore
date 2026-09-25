@@ -2,3 +2,6 @@ node_modules/
 data/
 data-demo/
 config.json
+# portable Node.js dropped next to the app (see start.bat)
+node/
+node-v*-win-x64/

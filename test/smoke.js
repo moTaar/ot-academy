@@ -95,6 +95,27 @@ async function main() {
     assert.equal(r.body.cs.reachable, true);
   });
 
+  await step('Windows Server 2016 / IE11: edge mode, loader and legacy build are served', async () => {
+    const base = `http://127.0.0.1:${appPort}`;
+    const page = await fetch(`${base}/`);
+    assert.equal(page.headers.get('x-ua-compatible'), 'IE=edge');
+    const html = await page.text();
+    assert.match(html, /<meta http-equiv="X-UA-Compatible" content="IE=edge">/);
+    assert.match(html, /<script src="boot\.js"><\/script>/);
+    for (const [file, type] of [['boot.js', 'javascript'], ['legacy/app.legacy.js', 'javascript'], ['legacy/styles.legacy.css', 'text/css']]) {
+      const r = await fetch(`${base}/${file}`);
+      assert.equal(r.status, 200, file);
+      assert.match(r.headers.get('content-type'), new RegExp(type), file);
+    }
+    const apiRes = await fetch(`${base}/api/health`);
+    assert.equal(apiRes.headers.get('pragma'), 'no-cache');
+  });
+
+  await step('IE11 build is up to date with app.js / styles.css (else: npm run build:legacy)', async () => {
+    const { sourceHash, builtHash } = require('../tools/legacy-sources');
+    assert.equal(builtHash(), sourceHash());
+  });
+
   await step('API rejects unauthenticated and header-less requests', async () => {
     assert.equal((await call('GET', '/api/overview')).status, 401);
     const raw = await fetch(`http://127.0.0.1:${appPort}/api/logout`, { method: 'POST' });

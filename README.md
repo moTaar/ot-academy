@@ -23,8 +23,20 @@ There is also a **practice exam** mode (random questions from all modules, shuff
 
 ## Requirements
 
-- Node.js 18 or newer. No `npm install` — the app has no dependencies.
+- Node.js 18 or newer (current LTS recommended). No `npm install` — the app has no runtime dependencies.
 - Network access from where it runs to Content Server's URL. Running it on the Content Server machine itself is simplest.
+- Any current browser, **or Internet Explorer 11** (see below).
+
+### Windows Server 2016
+
+Windows Server 2016 is supported, including its built-in Internet Explorer 11:
+
+- **Node.js** — Node.js 22 and 24 officially support Windows 10 / Server 2016. The simplest install on a server is the portable *Windows Binary (.zip)* from https://nodejs.org: extract it into the app folder (you get `node-v22.x.x-win-x64\node.exe`) and `start.bat` uses it automatically — no installer, no PATH change.
+- **Internet Explorer 11** — `boot.js` detects browsers that can't run the modern front end and loads a pre-built ES5 version instead (`public/legacy/`: transpiled app + polyfills + a stylesheet with flexbox fallbacks). The login page then shows *“Compatibility mode”*. Add `?legacy=1` to the URL to force that build in any browser.
+- The server sends `X-UA-Compatible: IE=edge`, so IE doesn't fall back to Compatibility View for `localhost`/intranet sites, and marks API responses as non-cacheable (IE caches script GETs otherwise).
+- **IE Enhanced Security Configuration** is on by default for administrators on Windows Server and disables scripts: add the trainer's URL to *Trusted sites*, or turn IE ESC off in Server Manager ▸ Local Server.
+
+`start.bat test` runs the self-test with the same Node.js the app uses.
 
 ## Try it without Content Server (demo)
 
@@ -87,7 +99,7 @@ nssm set CSAcademy AppDirectory "D:\cs-academy"
 nssm start CSAcademy
 ```
 
-`start.bat` is provided for running it by hand.
+`start.bat` is provided for running it by hand. With a portable Node.js in the app folder, point NSSM at that `node.exe` instead of `C:\Program Files\nodejs\node.exe`.
 
 ## What is stored
 
@@ -119,7 +131,21 @@ Item types are matched by subtype number **or** type name, because optional modu
 npm test
 ```
 
-Runs an end-to-end test: the mock Content Server plus the trainer, with the test playing the learner (creating folders, adding versions, granting permissions…) and asserting that each mission fails before the work and passes after it.
+Runs an end-to-end test: the mock Content Server plus the trainer, with the test playing the learner (creating folders, adding versions, granting permissions…) and asserting that each mission fails before the work and passes after it. It also fails if the Internet Explorer build is out of date.
+
+## Changing the front end
+
+`public/app.js` and `public/styles.css` are the sources. After editing them (or `tools/ie11.css`), rebuild the Internet Explorer 11 version:
+
+```bash
+npm install
+```
+
+```bash
+npm run build:legacy
+```
+
+`npm install` fetches build tools only (Babel, core-js, whatwg-fetch, acorn) into `node_modules/`; the app never loads them at runtime. The build refuses to write output that isn't pure ES5 or that uses DOM methods IE11 lacks (`closest`, `append`, `remove()`…). Commit the regenerated `public/legacy/` files; servers never need npm.
 
 ## Limits
 

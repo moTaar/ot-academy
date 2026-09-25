@@ -2,15 +2,18 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <!-- Stop Internet Explorer 11 from using Compatibility View (IE7 mode) for intranet/localhost sites. -->
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>CS Academy</title>
   <meta name="description" content="Hands-on trainer for OpenText Content Server">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css" id="main-css">
 </head>
 <body>
   <div id="app"></div>
   <div id="toasts" aria-live="polite"></div>
-  <script src="app.js"></script>
+  <noscript><p style="padding:24px;font-family:sans-serif">CS Academy needs JavaScript. On Windows Server, turn off “IE Enhanced Security Configuration” or add this site to Trusted sites.</p></noscript>
+  <script src="boot.js"></script>
 </body>
 </html>

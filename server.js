@@ -187,7 +187,8 @@ function createApp(config) {
 
   const send = (res, status, body, headers = {}) => {
     const text = JSON.stringify(body);
-    res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers });
+    // Pragma/Expires as well: Internet Explorer 11 caches GET requests made by scripts otherwise.
+    res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', Pragma: 'no-cache', Expires: '0', ...headers });
     res.end(text);
   };
 
@@ -521,6 +522,8 @@ function createApp(config) {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'no-referrer');
+    // IE11 would otherwise render localhost/intranet pages in Compatibility View (IE7 mode).
+    res.setHeader('X-UA-Compatible', 'IE=edge');
 
     if (!url.pathname.startsWith('/api/')) {
       res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'");
@@ -571,6 +574,11 @@ function createApp(config) {
 // ---------------------------------------------------------------- main
 
 async function main() {
+  const major = Number(process.versions.node.split('.')[0]);
+  if (major < 18) {
+    console.error(`CS Academy needs Node.js 18 or newer; this is ${process.version}. Use the current LTS from https://nodejs.org (Windows Server 2016 is supported).`);
+    process.exit(1);
+  }
   const config = loadConfig(process.argv.slice(2));
 
   if (config.demo) {

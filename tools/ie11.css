@@ -1,0 +1,103 @@
+/* ------------------------------------------------------------------------
+   Internet Explorer 11 layout fallbacks.
+   tools/build-legacy.js appends this file to styles.css when it builds
+   public/legacy/styles.legacy.css (CSS variables are resolved afterwards, so
+   var(--…) may be used here). IE11 has no CSS grid (as used in styles.css),
+   no flexbox `gap`, no `place-items` and no `position: sticky`; these rules
+   rebuild the same layouts with flexbox and margins.
+   ------------------------------------------------------------------------ */
+
+main, main#main { display: block; }
+
+/* app shell: sidebar + content */
+.shell { display: flex; min-height: 100vh; }
+.side { flex: 0 0 248px; width: 248px; height: auto; min-height: 100vh; }
+main#main { flex: 1 1 0%; width: auto; min-width: 0; }
+
+/* boxes that centre their content */
+.brand-mark, .avatar, .teacher-avatar, .module-num, .status-ico, .checks .ico, .hero-steps .n {
+  display: flex; align-items: center; justify-content: center;
+}
+.steps li::before { display: block; text-align: center; line-height: 26px; }
+
+/* generic grids → equal flex columns (percentage widths round past 100% and wrap) */
+.grid { display: flex; margin-left: -8px; margin-right: -8px; }
+.grid > * { flex: 1 1 0%; min-width: 0; margin: 0 8px 16px; }
+.grid.auto { flex-wrap: wrap; }
+.grid.auto > * { flex: 0 0 auto; width: calc(33.33% - 17px); }
+
+/* classroom */
+.teacher { display: flex; align-items: flex-start; }
+.teacher-avatar { flex: 0 0 64px; margin-right: 18px; }
+.teacher .bubble { flex: 1 1 0%; }
+.track-row { display: flex; align-items: center; }
+.track-row .n { flex: 0 0 190px; }
+.track-row .bar { flex: 1 1 0%; margin: 0 14px; }
+.track-row .p { flex: 0 0 70px; }
+
+/* curriculum & module pages */
+.module-card { display: flex; align-items: center; }
+.module-card .module-num { flex: 0 0 44px; margin-right: 16px; }
+.module-card > div:nth-child(2) { flex: 1 1 0%; }
+.module-card .prog { flex: 0 0 150px; margin-left: 16px; }
+.mission-list a { display: flex; align-items: center; }
+.mission-list .status-ico { flex: 0 0 26px; margin-right: 12px; }
+.mission-list a > div:nth-child(2) { flex: 1 1 0%; }
+.mission-list .m { margin-left: 12px; }
+
+/* mission & exam pages */
+.mission-grid { display: flex; align-items: flex-start; }
+.mission-grid > :first-child { flex: 1 1 0%; min-width: 0; }
+.mission-grid > .side-card { flex: 0 0 320px; margin-left: 20px; }
+.checks li { display: flex; }
+.checks .ico { flex: 0 0 22px; margin-right: 10px; }
+.checks li > div { flex: 1 1 0%; }
+
+/* sign-in page */
+.login { display: flex; }
+.login-hero { flex: 1.1 1 0%; }
+.login-form { flex: 1 1 0%; display: flex; align-items: center; justify-content: center; }
+.hero-steps li { display: flex; }
+.hero-steps .n { flex: 0 0 30px; margin-right: 12px; }
+.hero-steps li > div:last-child { flex: 1 1 0%; }
+.login-hero > * + * { margin-top: 22px; }
+.hero-steps li + li { margin-top: 14px; }
+
+/* badges */
+.badge-grid { display: flex; flex-wrap: wrap; }
+.badge-grid > * { width: 150px; margin: 0 12px 12px 0; }
+
+/* flexbox `gap` → margins */
+.row-flex > * { margin-right: 10px; }
+.spread > * + * { margin-left: 12px; }
+.page-head > * + * { margin-left: 16px; }
+.assignment > * + * { margin-left: 16px; }
+.activity li > * + * { margin-left: 10px; }
+.area > * + * { margin-top: 8px; }
+.options > * + * { margin-top: 8px; }
+#toasts > * + * { margin-top: 8px; }
+.btn svg, .pill svg, .nav svg, .side-actions svg { margin-right: 7px; }
+.btn .spinner { margin-right: 8px; }
+.brand-mark, .me .avatar { margin-right: 10px; }
+.option input { margin-right: 11px; }
+.chips > *, .mods > *, .dots > * { margin: 0 6px 6px 0; }
+.tabs a { margin-right: 4px; }
+.side-actions button + button { margin-left: 6px; }
+.open-links > * { margin-right: 8px; }
+.exam-nav button { margin: 0 5px 5px 0; }
+.status-dot { margin-right: 8px; }
+.verdict > svg, .brief > svg { margin-right: 12px; }
+.nav a { margin-bottom: 2px; }
+.crumbs a { margin: 0 6px; }
+.crumbs a:first-child { margin-left: 0; }
+
+/* narrow windows: stack the sidebar above the content */
+@media (max-width: 860px) {
+  .shell { display: block; }
+  .side { width: auto; min-height: 0; }
+  .mission-grid, .login { display: block; }
+  .mission-grid > .side-card { margin: 16px 0 0; }
+  .grid { flex-wrap: wrap; }
+  .grid.two > *, .grid.three > *, .grid.auto > * { flex: 0 0 auto; width: calc(100% - 16px); }
+  .grid.four > * { flex: 0 0 auto; width: calc(50% - 17px); }
+}

@@ -16,7 +16,9 @@
     return `<a href="${clean}" target="_blank" rel="noopener">${clean}</a>${u.slice(clean.length)}`;
   }));
   const $ = (sel, root = document) => root.querySelector(sel);
-  const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+  // DOM calls below stick to what Internet Explorer 11 supports natively
+  // (no closest/append/remove/isConnected); see tools/build-legacy.js.
+  const $$ = (sel, root = document) => Array.prototype.slice.call(root.querySelectorAll(sel));
   const pct = (a, b) => (b ? Math.round((100 * a) / b) : 0);
   const initials = (name) => (name || '?').split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase();
   const when = (iso) => { try { return new Date(iso).toLocaleString(); } catch { return iso; } };
@@ -55,13 +57,15 @@
     flag: '<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>',
     alert: '<path d="M12 4 2.5 20h19L12 4Z"/><path d="M12 10v4.5M12 17.5v.01"/>',
   };
-  const icon = (name) => raw(`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`);
-  const HAT = raw('<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 7 3 13l13 6 13-6-13-6Z" fill="#fff"/><path d="M8.5 16v5.5c0 2 3.4 4 7.5 4s7.5-2 7.5-4V16L16 19.5 8.5 16Z" fill="#bfe9e2"/><path d="M27 13.5v6" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg>');
+  // width/height attributes are defaults for browsers (IE11) that otherwise draw
+  // unsized SVG at 300×150; CSS rules set the real size per context.
+  const icon = (name) => raw(`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`);
+  const HAT = raw('<svg width="24" height="24" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 7 3 13l13 6 13-6-13-6Z" fill="#fff"/><path d="M8.5 16v5.5c0 2 3.4 4 7.5 4s7.5-2 7.5-4V16L16 19.5 8.5 16Z" fill="#bfe9e2"/><path d="M27 13.5v6" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg>');
   const TRACK_COLORS = { user: '#0f6e62', collab: '#2c5cc5', admin: '#a55a0b' };
   const medal = (color) => raw(`<svg viewBox="0 0 40 40" aria-hidden="true"><path d="M13 3h14l-4 12h-6L13 3Z" fill="${color}" opacity=".35"/><circle cx="20" cy="24" r="11" fill="${color}"/><path d="m20 17.5 2 4.1 4.5.6-3.3 3.1.8 4.5-4-2.2-4 2.2.8-4.5-3.3-3.1 4.5-.6 2-4.1Z" fill="#fff"/></svg>`);
   const ring = (p) => {
     const r = 52; const c = 2 * Math.PI * r;
-    return raw(`<svg class="score-ring" viewBox="0 0 120 120" role="img" aria-label="${p}%"><circle cx="60" cy="60" r="${r}" fill="none" style="stroke:var(--surface-2)" stroke-width="10"/><circle cx="60" cy="60" r="${r}" fill="none" style="stroke:var(--accent)" stroke-width="10" stroke-linecap="round" stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${(c * (1 - p / 100)).toFixed(1)}" transform="rotate(-90 60 60)"/><text x="60" y="68" text-anchor="middle" font-size="26" font-weight="700" style="fill:var(--text)">${p}%</text></svg>`);
+    return raw(`<svg class="score-ring" viewBox="0 0 120 120" role="img" aria-label="${p}%"><circle class="ring-track" cx="60" cy="60" r="${r}" fill="none" stroke-width="10"/><circle class="ring-value" cx="60" cy="60" r="${r}" fill="none" stroke-width="10" stroke-linecap="round" stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${(c * (1 - p / 100)).toFixed(1)}" transform="rotate(-90 60 60)"/><text class="ring-text" x="60" y="68" text-anchor="middle" font-size="26" font-weight="700">${p}%</text></svg>`);
   };
 
   const TYPE = {
@@ -113,8 +117,8 @@
     const el = document.createElement('div');
     el.className = `toast ${kind}`;
     el.textContent = text;
-    $('#toasts').append(el);
-    setTimeout(() => el.remove(), 4500);
+    $('#toasts').appendChild(el);
+    setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 4500);
   }
 
   function busy(btn, label) {
@@ -131,7 +135,7 @@
   const getTheme = () => { try { return localStorage.getItem('csa-theme'); } catch { return null; } };
   const applyTheme = () => {
     const t = getTheme();
-    if (t) document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme;
+    if (t) document.documentElement.setAttribute('data-theme', t); else document.documentElement.removeAttribute('data-theme');
   };
   const isDark = () => { const t = getTheme(); return t ? t === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches; };
   const toggleTheme = () => {
@@ -169,7 +173,7 @@
     try {
       await hit[1](main, ...hit[0].slice(1));
     } catch (e) {
-      if (!e.silent && main.isConnected) put(main, h`<div class="card"><h2>Something went wrong</h2><p class="muted">${e.message}</p><a class="btn" href="#/">Back to the classroom</a></div>`);
+      if (!e.silent && document.body.contains(main)) put(main, h`<div class="card"><h2>Something went wrong</h2><p class="muted">${e.message}</p><a class="btn" href="#/">Back to the classroom</a></div>`);
     }
     window.scrollTo(0, 0);
   }
@@ -269,6 +273,7 @@
             <button class="btn primary" style="width:100%" type="submit">Sign in</button>
             ${demo ? h`<p class="small muted" style="margin:12px 0 0">Demo mode: sign in as <b>demo</b> (any password) to see a learner part-way through, or with any other name to start fresh.</p>` : ''}
             <div class="status-line"><span class="status-dot ${hl ? (hl.cs.reachable ? 'ok' : 'bad') : ''}"></span><span>${hl ? (hl.cs.reachable ? `Content Server reachable · ${hl.csUrl}` : `Can't reach Content Server at ${hl.csUrl}`) : 'Checking the connection…'}</span></div>
+            ${/(^|\s)legacy(\s|$)/.test(document.documentElement.className) ? h`<p class="small faint" style="margin:8px 0 0">Compatibility mode: running the Internet Explorer 11 build.</p>` : ''}
           </form>
         </section>
       </div>`);
@@ -594,7 +599,7 @@
       const q = d.quiz;
       work = h`<form id="quiz-form" class="stack">${m.questions.map((qq, i) => {
         const rv = q && q.review[i];
-        return h`<fieldset class="card question" style="border:1px solid var(--border)">
+        return h`<fieldset class="card question">
           <legend class="sr-only">Question ${i + 1}</legend>
           <div class="qn">Question ${i + 1} of ${m.questions.length}</div>
           <div class="qt">${qq.q}</div>
@@ -696,7 +701,10 @@
     const qf = $('#quiz-form');
     if (qf) {
       $$('.option input', qf).forEach((inp) => {
-        inp.onchange = () => $$(`input[name="${inp.name}"]`, qf).forEach((x) => x.closest('.option').classList.toggle('selected', x.checked));
+        inp.onchange = () => $$(`input[name="${inp.name}"]`, qf).forEach((x) => {
+          const label = x.parentNode; // <label class="option"><input>…</label>
+          if (x.checked) label.classList.add('selected'); else label.classList.remove('selected');
+        });
       });
       qf.onsubmit = async (ev) => {
         ev.preventDefault();
@@ -711,7 +719,7 @@
           state.curriculum = null;
           celebrate(r);
           renderMission(main, d);
-          window.scrollTo({ top: 0, behavior: 'smooth' });
+          window.scrollTo(0, 0);
         } catch (e) { if (!e.silent) toast(e.message, 'warn'); unbusy(btn); }
       };
       const rb = $('#retry-btn');

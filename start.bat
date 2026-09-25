@@ -1,8 +1,8 @@
 @echo off
 rem Start CS Academy.
-rem   start.bat           run with config.json
-rem   start.bat --demo    run with the built-in mock Content Server
-rem   start.bat test      run the self-test (does not touch Content Server)
+rem   start.bat                  run with config.json
+rem   start.bat --cs-url <url>   train against the Content Server at <url>
+rem   start.bat test             run the self-test (does not touch Content Server)
 rem
 rem Node.js: uses a portable copy next to this file if there is one - either a
 rem folder named "node" or the extracted Windows zip ("node-v22.x.x-win-x64")

@@ -171,7 +171,7 @@ module.exports = [
         ],
         inputs: [{ key: 'mime', label: 'MIME type of Project Plan', placeholder: 'e.g. application/pdf' }],
         checks: [
-          { kind: 'answer', input: 'mime', source: 'ref.mime:planDoc', compare: 'contains', label: 'MIME type of “Project Plan”' },
+          { kind: 'answer', input: 'mime', source: 'ref.mime:planDoc', compare: 'text', label: 'MIME type of “Project Plan”', hint: 'Type the whole MIME type as the General tab shows it, e.g. application/pdf.' },
         ],
         open: 'planDoc',
       },
@@ -513,7 +513,7 @@ module.exports = [
           'Enter “ota-{{user}}” and save.',
           'Open {{csUrl}}/open/ota-{{user}} in a new tab to test it.',
         ],
-        checks: [{ kind: 'prop', node: 'sandbox', field: 'nickname', op: 'regex', value: '^ota-{{user}}$', label: 'Nickname of “{{sandbox}}” is “ota-{{user}}”' }],
+        checks: [{ kind: 'nickname', node: 'sandbox', value: 'ota-{{user}}', label: 'Nickname “ota-{{user}}” opens “{{sandbox}}”' }],
         open: 'sandbox',
       },
       {

@@ -2,9 +2,11 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "cs-academy-demo",
+      "name": "cs-academy",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["server.js", "--demo"],
+      "runtimeArgs": [
+        "server.js"
+      ],
       "port": 8420
     }
   ]

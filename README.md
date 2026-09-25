@@ -4,20 +4,22 @@ CS Academy runs next to your OpenText Content Server 16.x and acts as an instruc
 
 1. **It analyses the platform.** Through the Content Server REST API it walks the Enterprise and Personal workspaces, reads the volumes, categories, classifications, workflow maps, groups, object types you may create, and probes optional modules (Extended ECM business workspaces, records, communities…). The result is a *platform map* showing which functional areas exist on this server.
 2. **It gives assignments.** 116 missions across 31 modules in three tracks (Business User, Collaboration, Analyst & Administrator). The instructor always proposes the next sensible mission, tailored to what the scan found.
-3. **It checks the work live.** Hands-on missions ("create a compound document with two chapters", "grant a group See Contents on 02 Review", "make a generation of Project Plan in 03 Final") are verified against the real server. When something is wrong the feedback is specific: *“Project Plan is there, but it is a Folder — not the kind of item this step asks for.”*
+3. **It checks the work live.** Hands-on missions ("create a compound document with two chapters", "grant a group See Contents on 02 Review", "make a generation of Project Plan in 03 Final") are verified against the real server. When something is wrong the feedback is specific: *“Project Plan is there, but it is a Folder — not the kind of item this step asks for.”* When it is right, the result names the item it found (with its node ID) and links to it in Smart View and the Classic UI, so you can see it there yourself.
 
 It is **read-only**: the only calls it makes to Content Server are `POST /api/v1/auth` (sign-in) and `GET` requests. The learner does all the work in Content Server.
+
+It works **only against a real Content Server**. There is no demo or offline mode and no sample data: every result — the platform map, every check, every expected answer — is read from the server in `config.json` at the moment you ask. The sidebar always shows which server that is, and the **Connection** page lists each REST call the trainer relies on with what your server returned.
 
 ## Mission types
 
 | Type | How it is checked |
 |---|---|
 | Hands-on | Automatically, by reading the learner's items through REST |
-| Investigation | The learner finds a value in Content Server (a node ID, their department group, the server version…) and types it; the app compares it with the server |
-| Knowledge check | Multiple-choice quiz, graded on the server (answers never reach the browser) |
-| Practice | Things REST can't see (Enterprise Connect, reminders, Pulse…): the learner writes a short reflection |
+| Investigation | The learner finds a value in Content Server (a node ID, their department group, the server version…) and types it; the app compares it with the value the server returns at that moment |
+| Knowledge check | Multiple-choice quiz, graded by the trainer (answers never reach the browser) |
+| Practice | Things REST can't see (Enterprise Connect, reminders, Pulse…): the learner writes a short reflection. These are shown as self-reported, never as verified |
 
-If a server doesn't expose something a check needs, the check reports *couldn't verify* rather than failing, and the learner can self-confirm for 70% of the XP.
+A hands-on or investigation mission is completed **only** when every step was seen on the server. If Content Server doesn't return something a step needs, that step shows *couldn't verify* with the exact call and HTTP answer, and the mission stays open (skip it if the feature isn't available to you). If Content Server can't be reached, the check reports that error — it never turns into a result.
 
 There is also a **practice exam** mode (random questions from all modules, shuffled options, review at the end), **XP, levels and badges**, and a **class roster** for Content Server system administrators.
 
@@ -38,26 +40,25 @@ Windows Server 2016 is supported, including its built-in Internet Explorer 11:
 
 `start.bat test` runs the self-test with the same Node.js the app uses.
 
-## Try it without Content Server (demo)
-
-```bash
-node server.js --demo
-```
-
-Open http://localhost:8420 and sign in as **demo** (any password). The demo starts a small simulated Content Server with sample content; the demo learner has already done the first few tasks so you can see both passes and failures. Sign in with any other name to start from zero.
-
 ## Connect it to your Content Server
 
+The trainer does not start until you tell it which Content Server to use — there is no built-in default.
+
 1. Copy `config.example.json` to `config.json`.
-2. Set `contentServer.baseUrl` to the Content Server CGI/ISAPI URL, the same one you see in the browser before `?func=`:
+2. Set `contentServer.baseUrl` to the Content Server CGI/ISAPI URL, the same one you see in the browser before `?func=` in the Classic UI:
    - `http://localhost/otcs/cs.exe` (typical when running on the CS server)
-   - `https://ecm.example.com/otcs/llisapi.dll`
+   - `https://ecm.example.com/otcs/llisapi.dll` (IIS)
+   - `http://ecm.example.com:8080/otcs/cs` (Tomcat)
 3. If learners reach Content Server at a different address than the trainer does, set `contentServer.publicUrl` to the address their browsers use. It is only used for “Open in Smart View / Classic UI” links.
 4. Start it:
 
 ```bash
 node server.js
 ```
+
+Instead of `config.json` you can pass the address on the command line (`node server.js --cs-url http://localhost/otcs/cs.exe`, also `start.bat --cs-url …`) or set `OTA_CS_URL`.
+
+At start-up the trainer calls `GET /api/v1/serverinfo` and prints whether a Content Server REST API is answering at that address. A web page, a redirect to a login page or a refused connection is reported as such — the login page shows the same status, and nobody can sign in until it is fixed.
 
 Learners open `http://<server>:8420` and sign in with their normal Content Server credentials (OTDS users included — sign-in goes through `/api/v1/auth`).
 
@@ -66,7 +67,7 @@ Learners open `http://<server>:8420` and sign in with their normal Content Serve
 | Key | Default | Meaning |
 |---|---|---|
 | `port`, `host` | `8420`, `0.0.0.0` | Where the trainer listens |
-| `contentServer.baseUrl` | `http://localhost/otcs/cs.exe` | Content Server URL used by the trainer |
+| `contentServer.baseUrl` | *(required)* | Content Server URL used by the trainer. Never taken from `config.example.json` |
 | `contentServer.publicUrl` | same as `baseUrl` | Content Server URL used in links shown to learners |
 | `contentServer.allowSelfSignedCerts` | `false` | Accept a self-signed HTTPS certificate on Content Server |
 | `contentServer.timeoutMs` | `20000` | Per-request timeout |
@@ -77,7 +78,7 @@ Learners open `http://<server>:8420` and sign in with their normal Content Serve
 | `dataDir` | `./data` | Where learner progress is stored |
 | `sessionHours` | `8` | Idle time before a trainer session expires |
 
-Environment overrides: `OTA_CS_URL`, `OTA_PORT`.
+Overrides: `--cs-url <url>` or `OTA_CS_URL` for `contentServer.baseUrl`, `OTA_PORT` for `port`.
 
 ### HTTPS (recommended)
 
@@ -103,7 +104,7 @@ nssm start CSAcademy
 
 ## What is stored
 
-- `data/progress/<userId>.json` per learner: mission results, XP, exam history, reflections, and the IDs of items the learner created for missions (so later missions can build on them).
+- `data/progress/<server>/<userId>.json` per learner, in one folder per Content Server URL: mission results, XP, exam history, reflections, and the IDs of items the learner created for missions (so later missions can build on them). Node and user IDs only mean something on the server they came from, so progress is never carried over to another server.
 - Passwords are never stored. The Content Server ticket lives only in memory for the session.
 
 ## Tailoring the curriculum
@@ -121,7 +122,7 @@ Missions live in `curriculum/track-*.js` as plain data. A hands-on mission looks
 }
 ```
 
-Check kinds: `child`, `count`, `prop`, `versions`, `categories`, `permissions`, `favorite`, `gone`, `answer`, `groupExists`, `apiCount` — see `lib/verifier.js`. `saveAs` remembers the item found so later missions can refer to it (`parent: 'cdoc'`). Placeholders: `{{sandbox}}`, `{{user}}`, `{{category}}`, `{{group}}`, `{{csUrl}}`, `{{smartUrl}}`. The curriculum is validated at start-up, so a typo in a reference stops the server with a clear message.
+Check kinds: `child`, `count`, `prop`, `versions`, `categories`, `permissions`, `favorite`, `gone`, `nickname`, `answer`, `nodeAnswer`, `groupExists`, `apiCount` — see `lib/verifier.js`. Every expected value is read live from Content Server (there are no answers from the stored scan). `saveAs` remembers the item found so later missions can refer to it (`parent: 'cdoc'`). Placeholders: `{{sandbox}}`, `{{user}}`, `{{category}}`, `{{group}}`, `{{csUrl}}`, `{{smartUrl}}`. The curriculum is validated at start-up, so a typo in a reference, a check kind or an answer source stops the server with a clear message.
 
 Item types are matched by subtype number **or** type name, because optional modules use different subtype numbers on different installations. If a check misses an item type on your server, add the subtype you see in the Platform map to its `types` list.
 
@@ -131,7 +132,7 @@ Item types are matched by subtype number **or** type name, because optional modu
 npm test
 ```
 
-Runs an end-to-end test: the mock Content Server plus the trainer, with the test playing the learner (creating folders, adding versions, granting permissions…) and asserting that each mission fails before the work and passes after it. It also fails if the Internet Explorer build is out of date.
+Runs an end-to-end test: the trainer in front of `test/mock-cs.js`, an in-memory imitation of the Content Server REST API that exists **only for the tests** (the trainer never starts it). Its endpoints, parameters, response shapes and error codes follow OpenText's published OpenAPI description of the v1/v2 API. The test plays the learner (creating folders, adding versions, granting permissions…) and asserts that each mission fails before the work and passes after it, that nothing unverifiable ever counts as done, that server errors and outages never pass a check, and that the trainer calls no endpoint the mock doesn't know. It also fails if the Internet Explorer build is out of date.
 
 ## Changing the front end
 
@@ -149,7 +150,7 @@ npm run build:legacy
 
 ## Limits
 
-- The REST calls follow the documented Content Server 16.x v1/v2 API, and the app has been tested against the built-in mock server, not yet against a live installation. The API layer accepts both v1 and v2 response shapes and falls back to *couldn't verify* rather than failing, but expect to adjust a few checks (subtype numbers, optional endpoints such as workflow status or classifications) the first time you point it at your server.
+- The REST calls follow OpenText's published OpenAPI description of the Content Server v1/v2 API, and the automated tests run against a mock of it — not against a live installation. Some modules differ between installations (the per-item classifications endpoint, Extended ECM's business workspace types, subtype numbers). The first time you point the trainer at your server, open the **Connection** page: it shows each call and what your server answered, so a step that can't be verified there is visible immediately instead of being guessed.
 - The scan samples the tree (`scan.maxDepth`, `scan.maxNodes`). On very large repositories, areas that only exist deep in the tree may show as *not detected*.
 
 ## Sources

@@ -56,6 +56,7 @@
     search: '<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/>',
     flag: '<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>',
     alert: '<path d="M12 4 2.5 20h19L12 4Z"/><path d="M12 10v4.5M12 17.5v.01"/>',
+    server: '<rect x="3.5" y="4" width="17" height="7" rx="1.5"/><rect x="3.5" y="13" width="17" height="7" rx="1.5"/><path d="M7.5 7.5h.01M7.5 16.5h.01"/>',
   };
   // width/height attributes are defaults for browsers (IE11) that otherwise draw
   // unsized SVG at 300×150; CSS rules set the real size per context.
@@ -69,11 +70,12 @@
   };
 
   const TYPE = {
-    'hands-on': { label: 'Hands-on', cls: 'accent', how: 'Auto-checked — I read your Content Server through its REST API to confirm the work.' },
-    investigate: { label: 'Investigation', cls: 'info', how: 'Auto-checked — your answers are compared with the values on the server.' },
-    quiz: { label: 'Knowledge check', cls: 'xp', how: 'Graded on the server. Answer at least 60% correctly to pass.' },
-    practice: { label: 'Practice', cls: '', how: 'Self-check — explain what you did in your own words.' },
+    'hands-on': { label: 'Hands-on', cls: 'accent', how: 'Checked live: I read your Content Server through its REST API. It only counts once I have seen the result there.' },
+    investigate: { label: 'Investigation', cls: 'info', how: 'Checked live: your answers are compared with the values your Content Server returns.' },
+    quiz: { label: 'Knowledge check', cls: 'xp', how: 'Graded by the trainer. Answer at least 60% correctly to pass.' },
+    practice: { label: 'Practice', cls: '', how: 'Not checked on the server — the REST API can\'t see this, so you explain what you did in your own words.' },
   };
+  const hostOf = (url) => { const m = /^[a-z]+:\/\/([^/?#]+)/i.exec(url || ''); return m ? m[1] : url || ''; };
   const FEATURE_STATUS = {
     detected: { label: 'Detected', cls: 'pass' },
     'not-detected': { label: 'Not detected', cls: '' },
@@ -156,6 +158,7 @@
     [/^#\/mission\/([\w-]+)$/, pageMission],
     [/^#\/exam$/, pageExam],
     [/^#\/progress$/, pageProgress],
+    [/^#\/connection$/, pageConnection],
     [/^#\/roster$/, pageRoster],
   ];
 
@@ -182,7 +185,8 @@
   // ------------------------------------------------------------ shell
   function renderShell(hash) {
     const u = state.session.user;
-    const nav = [['#/', 'home', 'Classroom'], ['#/map', 'map', 'Platform map'], ['#/curriculum', 'book', 'Curriculum'], ['#/exam', 'exam', 'Practice exam'], ['#/progress', 'chart', 'My progress']];
+    const nav = [['#/', 'home', 'Classroom'], ['#/map', 'map', 'Platform map'], ['#/curriculum', 'book', 'Curriculum'], ['#/exam', 'exam', 'Practice exam'], ['#/progress', 'chart', 'My progress'], ['#/connection', 'server', 'Connection']];
+    const cs = state.session.cs || { url: state.session.csUrl };
     if (u.isSysAdmin) nav.push(['#/roster', 'users', 'Class roster']);
     const isActive = (href) => (href === '#/' ? hash === '#/' || hash === '#'
       : hash.startsWith(href) || (href === '#/curriculum' && /^#\/(module|mission)\//.test(hash)));
@@ -192,6 +196,7 @@
           <div class="brand"><div class="brand-mark">${HAT}</div><div>CS Academy<small>Content Server trainer</small></div></div>
           <nav class="nav" aria-label="Main">${nav.map(([href, ic, label]) => h`<a href="${href}" class="${isActive(href) ? 'active' : ''}" ${isActive(href) ? raw('aria-current="page"') : ''}>${icon(ic)}<span>${label}</span></a>`)}</nav>
           <div class="side-foot">
+            <a class="side-server" href="#/connection" title="Every check reads this Content Server: ${cs.url}">${icon('server')}<span>${hostOf(cs.url)}${cs.version ? h` · ${cs.version}` : ''}</span></a>
             <div class="me"><div class="avatar" aria-hidden="true">${initials(u.displayName)}</div><div><div class="me-name">${u.displayName}</div><div class="me-level" id="side-level"></div></div></div>
             <div class="side-xp" id="side-xp"></div>
             <div class="side-actions">
@@ -250,7 +255,11 @@
       try { state.health = await (await fetch('/api/health')).json(); } catch { state.health = null; }
     }
     const hl = state.health;
-    const demo = hl && hl.demo;
+    const cs = hl && hl.cs;
+    const status = !hl ? { cls: '', text: 'Checking the connection…' }
+      : cs.restApi ? { cls: 'ok', text: `Content Server ${cs.version ? `${cs.version} ` : ''}answering at ${hl.csUrl}` }
+        : cs.reachable ? { cls: 'bad', text: `${hl.csUrl} answered, but not as a Content Server REST API (HTTP ${cs.status})`, more: cs.error }
+          : { cls: 'bad', text: `Can't reach Content Server at ${hl.csUrl}`, more: cs.error };
     put($('#app'), h`
       <div class="login">
         <section class="login-hero">
@@ -268,17 +277,17 @@
             <h2>Sign in</h2>
             <p class="muted small">Use your Content Server account. Your password is passed to Content Server and never stored.</p>
             <div id="login-error"></div>
-            <div class="field"><label for="u">User name</label><input class="input" id="u" name="username" autocomplete="username" required value="${demo ? 'demo' : ''}"></div>
+            <div class="field"><label for="u">User name</label><input class="input" id="u" name="username" autocomplete="username" required></div>
             <div class="field"><label for="p">Password</label><input class="input" id="p" name="password" type="password" autocomplete="current-password" required></div>
             <button class="btn primary" style="width:100%" type="submit">Sign in</button>
-            ${demo ? h`<p class="small muted" style="margin:12px 0 0">Demo mode: sign in as <b>demo</b> (any password) to see a learner part-way through, or with any other name to start fresh.</p>` : ''}
-            <div class="status-line"><span class="status-dot ${hl ? (hl.cs.reachable ? 'ok' : 'bad') : ''}"></span><span>${hl ? (hl.cs.reachable ? `Content Server reachable · ${hl.csUrl}` : `Can't reach Content Server at ${hl.csUrl}`) : 'Checking the connection…'}</span></div>
+            <div class="status-line"><span class="status-dot ${status.cls}"></span><span>${status.text}</span></div>
+            ${status.more ? h`<p class="small muted" style="margin:6px 0 0">${status.more}</p>` : ''}
             ${/(^|\s)legacy(\s|$)/.test(document.documentElement.className) ? h`<p class="small faint" style="margin:8px 0 0">Compatibility mode: running the Internet Explorer 11 build.</p>` : ''}
           </form>
         </section>
       </div>`);
     const form = $('#login-form');
-    (demo ? $('#p') : $('#u')).focus();
+    $('#u').focus();
     form.onsubmit = async (ev) => {
       ev.preventDefault();
       const btn = form.querySelector('button[type=submit]');
@@ -342,7 +351,6 @@
     }
     const accuracy = s.quiz.answered ? `${pct(s.quiz.correct, s.quiz.answered)}%` : '—';
     put(main, h`
-      ${o.demo ? h`<div class="demo-banner">Demo mode — you are connected to a simulated Content Server with sample content.</div>` : ''}
       <div class="teacher"><div class="teacher-avatar">${HAT}</div><div class="bubble">${bubble}</div></div>
 
       <div class="grid four" style="margin-top:22px">
@@ -397,7 +405,7 @@
     put(main, h`
       <div class="page-head">
         <div><div class="eyebrow">Platform map</div><h1>What I found on your server</h1>
-          <p>Content Server ${scan.server.version || '(version not reported)'} · analysed ${when(scan.scannedAt)} in ${(scan.durationMs / 1000).toFixed(1)} s</p></div>
+          <p>Content Server ${scan.server.version || '(version not reported)'}${scan.server.url ? ` at ${scan.server.url}` : ''} · analysed ${when(scan.scannedAt)} in ${(scan.durationMs / 1000).toFixed(1)} s</p></div>
         <button class="btn" id="rescan-btn">${icon('refresh')} Re-analyse</button>
       </div>
       <div class="chips" style="margin-bottom:18px">
@@ -425,7 +433,7 @@
             <tbody>${scan.inventory.byType.slice(0, 25).map((t) => h`<tr><td>${t.typeName}</td><td class="num faint">${t.type}</td><td class="num">${t.count}</td><td><div class="minibar" style="width:${pct(t.count, maxCount)}%"></div></td></tr>`)}</tbody></table>
         </div>
         <div class="stack">
-          <div class="card"><h3>Volumes</h3><table class="table"><tbody>${scan.volumes.map((v) => h`<tr><td>${v.label}</td><td>${v.id ? h`<span class="pill pass">${v.name}</span>` : h`<span class="pill">not reachable</span>`}</td><td class="num faint">${v.id || ''}</td></tr>`)}</tbody></table></div>
+          <div class="card"><h3>Volumes</h3><table class="table"><tbody>${scan.volumes.map((v) => h`<tr><td>${v.label}</td><td>${v.id ? h`<span class="pill pass">${v.name}</span>` : h`<span class="pill" title="${v.error || ''}">not reachable</span>`}</td><td class="num faint">${v.id || ''}</td></tr>`)}</tbody></table></div>
           <div class="card"><h3>Categories (${scan.categories.length})</h3>${scan.categories.length ? h`<div class="chips">${scan.categories.slice(0, 30).map((c) => h`<span class="chip">${c.name}</span>`)}</div>` : h`<p class="muted small">None visible to you.</p>`}</div>
           <div class="card"><h3>Workflow maps (${scan.workflowMaps.length})</h3>${scan.workflowMaps.length ? h`<div class="chips">${scan.workflowMaps.slice(0, 30).map((c) => h`<span class="chip">${c.name}</span>`)}</div>` : h`<p class="muted small">None found in the scanned area.</p>`}</div>
           <div class="card"><h3>You can create</h3>${scan.addable.length ? h`<div class="chips">${scan.addable.map((c) => h`<span class="chip">${c.name}</span>`)}</div>` : h`<p class="muted small">The server did not report addable item types.</p>`}</div>
@@ -535,10 +543,18 @@
     renderMission(main, d);
   }
 
-  function verdictBox(status) {
-    if (status === 'pass') return h`<div class="verdict pass">${icon('check')}<div class="body"><strong>Verified on the server.</strong> Well done — that is exactly what I was looking for.</div></div>`;
-    if (status === 'partial') return h`<div class="verdict partial">${icon('question')}<div class="body"><strong>Almost verified.</strong> Everything I could read is right, but this server doesn't let me check one part. If you did it, confirm below.</div></div>`;
-    return h`<div class="verdict fail">${icon('x')}<div class="body"><strong>Not quite yet.</strong> Here is what I found — fix it in Content Server and check again.</div></div>`;
+  function verdictBox(result, cs) {
+    const status = result.status;
+    const where = h`<span class="nowrap">${hostOf(cs && cs.url)}</span>`;
+    const linked = result.results.some((c) => c.node && c.node.links);
+    if (status === 'pass') return h`<div class="verdict pass">${icon('check')}<div class="body"><strong>Verified on your Content Server</strong> (${where}). Well done — that is exactly what I was looking for.${linked ? ' Open the items below to see them there yourself.' : ''}</div></div>`;
+    if (status === 'unverified') return h`<div class="verdict unverified">${icon('question')}<div class="body"><strong>Couldn't verify.</strong> Your Content Server (${where}) didn't give me what I need for the step marked “?”, so this mission is not done. If that feature isn't available on your server, skip the mission.</div></div>`;
+    return h`<div class="verdict fail">${icon('x')}<div class="body"><strong>Not quite yet.</strong> Here is what I found on ${where} — fix it in Content Server and check again.</div></div>`;
+  }
+
+  function evidenceLinks(n) {
+    if (!n || !n.links) return '';
+    return h`<div class="evidence">Open “${n.name}” (ID ${n.id}): <a href="${n.links.smart}" target="_blank" rel="noopener">Smart View</a> · <a href="${n.links.classic}" target="_blank" rel="noopener">Classic UI</a></div>`;
   }
 
   function checkIcon(st) {
@@ -553,21 +569,19 @@
     const done = st.status === 'done';
     const locked = av.locked.length > 0;
     const result = d.result;
-    const canConfirm = !done && ((result && result.status === 'partial') || st.pendingConfirm);
 
     // Right-hand panel
     let side;
     if (m.type === 'hands-on' || m.type === 'investigate') {
       side = h`
-        ${result ? verdictBox(result.status) : done ? h`<div class="verdict pass">${icon('check')}<div class="body"><strong>Completed</strong>${st.method === 'self-confirmed' ? ' (self-confirmed)' : ''}. You can re-check any time.</div></div>` : ''}
+        ${result ? verdictBox(result, state.session.cs) : done ? h`<div class="verdict ${st.method === 'self-confirmed' ? 'unverified' : 'pass'}">${icon(st.method === 'self-confirmed' ? 'question' : 'check')}<div class="body"><strong>Completed</strong>${st.method === 'self-confirmed' ? ' by self-confirmation in an earlier version — never verified on the server. Check it now.' : ` — verified on your Content Server${st.completedAt ? ` ${when(st.completedAt)}` : ''}. You can re-check any time.`}</div></div>` : ''}
         <h3>${result ? 'Results' : 'What I will check'}</h3>
         <ul class="checks">
           ${(result ? result.results : m.checks.map((l) => ({ label: l, status: 'pending' }))).map((c) => h`
-            <li class="${c.status}"><span class="ico">${checkIcon(c.status)}</span><div><div class="l">${c.label}</div>${c.detail ? h`<div class="d">${c.detail}</div>` : ''}</div></li>`)}
+            <li class="${c.status}"><span class="ico">${checkIcon(c.status)}</span><div><div class="l">${c.label}</div>${c.detail ? h`<div class="d">${c.detail}</div>` : ''}${evidenceLinks(c.node)}</div></li>`)}
         </ul>
         <div class="row-flex" style="margin-top:14px">
           <button class="btn primary" id="check-btn" ${locked ? 'disabled' : ''}>${icon('search')} Check my work</button>
-          ${canConfirm ? h`<button class="btn" id="confirm-btn">${icon('check')} I did it — confirm</button>` : ''}
         </div>`;
     } else if (m.type === 'quiz') {
       const need = Math.ceil(m.questions.length * 0.6);
@@ -580,7 +594,7 @@
       side = h`
         ${done ? h`<div class="verdict pass">${icon('check')}<div class="body"><strong>Completed.</strong> Your reflection is saved below.</div></div>` : ''}
         <h3>How it works</h3>
-        <p class="small muted">I can't read this part of Content Server automatically, so explaining what you did is how you show you've got it. Minimum ${m.minWords} words.</p>`;
+        <p class="small muted">The REST API can't see this part of Content Server, so I don't check it on the server: explaining what you did is how you show you've got it. It is recorded as self-reported. Minimum ${m.minWords} words.</p>`;
     }
 
     // Main column body per type
@@ -656,6 +670,7 @@
       busy(cb, 'Checking your work…');
       try {
         const r = await api('POST', `/api/missions/${m.id}/check`, { inputs: d.inputs });
+        if (r.cs) state.session.cs = r.cs;
         d.mission = r.mission;
         d.result = r.result;
         state.curriculum = null;
@@ -665,18 +680,6 @@
         if (!e.silent) toast(e.message, 'warn');
         unbusy(cb);
       }
-    };
-
-    const conf = $('#confirm-btn');
-    if (conf) conf.onclick = async () => {
-      busy(conf, 'Saving…');
-      try {
-        const r = await api('POST', `/api/missions/${m.id}/confirm`, {});
-        d.mission = r.mission;
-        state.curriculum = null;
-        celebrate(r);
-        renderMission(main, d);
-      } catch (e) { if (!e.silent) toast(e.message, 'warn'); unbusy(conf); }
     };
 
     const ta = $('#reflection');
@@ -880,6 +883,30 @@
       toast('Progress reset');
       go('#/');
     };
+  }
+
+  // ------------------------------------------------------------ connection
+  async function pageConnection(main) {
+    const r = await api('GET', '/api/connection');
+    if (r.cs) state.session.cs = r.cs;
+    const failed = r.rows.filter((x) => !x.ok && !x.optional).length;
+    put(main, h`
+      <div class="page-head"><div><div class="eyebrow">Connection</div><h1>What your Content Server returns</h1>
+        <p>Every check reads <b>${r.trainerUrl}</b> through its REST API, signed in as <b>${r.user.name}</b>. These are the calls I rely on, made just now —
+          ${failed ? h`<span class="fail-text">${failed} of them failed</span>, so missions that need them can't be verified.` : 'all of them answered.'}</p></div>
+        <button class="btn" id="conn-again">${icon('refresh')} Run again</button></div>
+      ${r.publicUrl !== r.trainerUrl ? h`<p class="small muted">Links shown to you open ${r.publicUrl}.</p>` : ''}
+      <div class="card" style="overflow-x:auto">
+        <table class="table"><thead><tr><th style="width:26px"></th><th>Area</th><th>What came back</th><th>Endpoint</th></tr></thead>
+        <tbody>${r.rows.map((x) => h`<tr>
+          <td><span class="status-dot ${x.ok ? 'ok' : x.optional ? '' : 'bad'}" title="${x.ok ? 'Answered' : x.optional ? 'Not available (optional module)' : 'Failed'}"></span></td>
+          <td class="nowrap"><b>${x.area}</b></td>
+          <td>${x.detail}${x.node && x.node.links ? h` · <a href="${x.node.links.smart}" target="_blank" rel="noopener">open</a>` : ''}${!x.ok && x.optional ? h` <span class="faint">(optional module)</span>` : ''}</td>
+          <td class="mono small faint">${x.endpoint || ''}</td>
+        </tr>`)}</tbody></table>
+      </div>
+      <p class="small faint" style="margin-top:12px">Checked ${when(r.checkedAt)}. The trainer only reads: it signs in with POST /api/v1/auth and otherwise sends GET requests.</p>`);
+    $('#conn-again').onclick = () => router();
   }
 
   // ------------------------------------------------------------ roster

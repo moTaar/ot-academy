@@ -1,7 +1,7 @@
 'use strict';
 // Loads the three tracks, validates them, and builds lookup tables.
 
-const { render } = require('../lib/verifier');
+const { render, HANDLERS, ANSWER_SOURCES } = require('../lib/verifier');
 
 const TRACKS = [
   { id: 'user', title: 'Business User', exam: '5-0158', blurb: 'Everyday document management — the foundation for every other track.' },
@@ -44,6 +44,10 @@ for (const mod of MODULES) {
         c.source && c.source.includes(':') && !c.source.startsWith('user.') ? c.source.split(':')[1] : null].filter(Boolean);
       for (const d of deps) if (!REF_ROOTS.has(d) && !refOwners[d]) errors.push(`${m.id}: check references unknown ref ${d}`);
       if (!c.label) errors.push(`${m.id}: check without label`);
+      if (!HANDLERS[c.kind]) errors.push(`${m.id}: unknown check kind ${c.kind}`);
+      if (c.kind === 'answer' && !ANSWER_SOURCES.includes(String(c.source).split(':')[0])) errors.push(`${m.id}: unknown answer source ${c.source}`);
+      if ((c.kind === 'answer' || c.kind === 'nodeAnswer') && !(m.inputs || []).some((i) => i.key === c.input)) errors.push(`${m.id}: check reads unknown input ${c.input}`);
+      if ('lenient' in c) errors.push(`${m.id}: "lenient" is no longer supported — every answer is checked against the live server`);
     }
     if (m.type === 'quiz') {
       m.questions.forEach((q, i) => {

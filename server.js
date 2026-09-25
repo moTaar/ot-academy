@@ -1,9 +1,12 @@
 'use strict';
 // CS Academy — hands-on trainer for OpenText Content Server.
 //
-//   node server.js              use config.json
-//   node server.js --demo       start with a built-in mock Content Server
-//   node server.js --config x   use another config file
+//   node server.js                  use config.json
+//   node server.js --config x       use another config file
+//   node server.js --cs-url <url>   train against this Content Server
+//
+// There is no demo or offline mode: every check reads the real Content Server
+// the trainer is configured for.
 
 const fs = require('fs');
 const path = require('path');
@@ -15,6 +18,7 @@ const { CSClient, CSError } = require('./lib/cs-client');
 const { CSApi } = require('./lib/cs-api');
 const { analyze } = require('./lib/analyzer');
 const { verifyMission } = require('./lib/verifier');
+const { diagnose } = require('./lib/diagnostics');
 const { Store } = require('./lib/store');
 const curriculum = require('./curriculum');
 
@@ -28,7 +32,6 @@ const LEVELS = [
 ];
 const TRACK_ORDER = ['user', 'collab', 'admin'];
 const QUIZ_PASS_RATIO = 0.6;
-const SELF_CONFIRM_XP_RATIO = 0.7;
 
 // ---------------------------------------------------------------- config
 
@@ -42,20 +45,40 @@ function readJsonFile(file) {
   }
 }
 
+class ConfigError extends Error {}
+
+const HOW_TO_CONFIGURE = [
+  'Tell CS Academy which Content Server to train on:',
+  '  1. Copy config.example.json to config.json.',
+  '  2. Set contentServer.baseUrl to the address your browser shows before "?func=" in the Classic UI,',
+  '     for example http://localhost/otcs/cs.exe (IIS: .../otcs/llisapi.dll, Tomcat: .../otcs/cs).',
+  '  3. Start CS Academy again.',
+  'Or start it with:  node server.js --cs-url http://localhost/otcs/cs.exe   (or set OTA_CS_URL)',
+].join('\n');
+
+function checkCsUrl(raw, key) {
+  let u;
+  try { u = new URL(raw); } catch { throw new ConfigError(`${key} "${raw}" is not a URL.\n\n${HOW_TO_CONFIGURE}`); }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new ConfigError(`${key} must start with http:// or https:// (got "${raw}").`);
+  if (u.search || u.hash) throw new ConfigError(`${key} must be the address before "?func=": use ${u.origin}${u.pathname} instead of ${raw}`);
+  return raw.replace(/\/+$/, '');
+}
+
 function loadConfig(argv) {
   const arg = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : null; };
+  if (argv.includes('--demo')) {
+    throw new ConfigError(`Demo mode has been removed: CS Academy only works against a real Content Server, so every result it shows comes from your server.\n\n${HOW_TO_CONFIGURE}`);
+  }
   const file = path.resolve(__dirname, arg('--config') || 'config.json');
   const defaults = readJsonFile(path.join(__dirname, 'config.example.json'));
-  let cfg = defaults;
-  if (fs.existsSync(file)) {
-    const own = readJsonFile(file);
-    cfg = { ...defaults, ...own, contentServer: { ...defaults.contentServer, ...own.contentServer }, scan: { ...defaults.scan, ...own.scan }, tls: { ...defaults.tls, ...own.tls } };
-  } else if (!argv.includes('--demo')) {
-    console.warn(`[config] ${file} not found — using config.example.json defaults. Copy it to config.json and set contentServer.baseUrl.`);
-  }
-  if (process.env.OTA_CS_URL) cfg.contentServer.baseUrl = process.env.OTA_CS_URL;
+  const own = fs.existsSync(file) ? readJsonFile(file) : {};
+  const cfg = { ...defaults, ...own, contentServer: { ...defaults.contentServer, ...own.contentServer }, scan: { ...defaults.scan, ...own.scan }, tls: { ...defaults.tls, ...own.tls } };
+  // The Content Server address never comes from the example file: it has to be chosen.
+  const url = String(arg('--cs-url') || process.env.OTA_CS_URL || (own.contentServer && own.contentServer.baseUrl) || '').trim();
+  if (!url) throw new ConfigError(`No Content Server is configured (${fs.existsSync(file) ? `${file} has no contentServer.baseUrl` : `${file} does not exist`}).\n\n${HOW_TO_CONFIGURE}`);
+  cfg.contentServer.baseUrl = checkCsUrl(url, 'contentServer.baseUrl');
+  if (cfg.contentServer.publicUrl) cfg.contentServer.publicUrl = checkCsUrl(cfg.contentServer.publicUrl, 'contentServer.publicUrl');
   if (process.env.OTA_PORT) cfg.port = Number(process.env.OTA_PORT);
-  cfg.demo = argv.includes('--demo');
   return cfg;
 }
 
@@ -136,7 +159,11 @@ function nextMission(progress) {
 function createApp(config) {
   const client = new CSClient(config.contentServer);
   const publicUrl = (config.contentServer.publicUrl || config.contentServer.baseUrl).replace(/\/+$/, '');
-  const store = new Store(path.resolve(__dirname, config.dataDir));
+  const store = new Store(path.resolve(__dirname, config.dataDir), client.baseUrl);
+  const legacy = store.legacyFiles();
+  if (legacy.length) {
+    console.warn(`[progress] ${legacy.length} progress file(s) directly in ${store.root} come from an earlier version that did not record which Content Server they belong to, so they are not used. Progress for ${client.baseUrl} is kept in ${store.dir}.`);
+  }
   const sessions = new Map();
   const loginAttempts = new Map();
   const SESSION_MS = (config.sessionHours || 8) * 3600 * 1000;
@@ -171,6 +198,14 @@ function createApp(config) {
     if (!ref) return null;
     return { name: ref.name, classic: `${publicUrl}?func=ll&objId=${ref.id}&objAction=browse`, smart: `${publicUrl}/app/nodes/${ref.id}` };
   };
+
+  // Where a learner can see, in Content Server itself, the item a check looked at.
+  const nodeLinks = (n) => ({
+    smart: `${publicUrl}/app/nodes/${n.id}`,
+    classic: `${publicUrl}?func=ll&objId=${n.id}&objAction=${n.container ? 'browse' : 'properties'}`,
+  });
+
+  const csInfo = (session) => ({ url: publicUrl, version: session.csVersion || null });
 
   const missionView = (m, session, progress) => {
     const vars = varsFor(session, progress);
@@ -255,10 +290,9 @@ function createApp(config) {
     }
   }
 
-  route('GET', /^\/api\/health$/, async () => {
-    const ping = await client.ping();
-    return { ok: true, demo: config.demo, csUrl: publicUrl, sandboxName: config.sandboxName, missions: curriculum.missionById.size, cs: { reachable: ping.reachable, status: ping.status || null, error: ping.error || null } };
-  }, { auth: false });
+  route('GET', /^\/api\/health$/, async () => ({
+    ok: true, csUrl: publicUrl, sandboxName: config.sandboxName, missions: curriculum.missionById.size, cs: await client.probe(),
+  }), { auth: false });
 
   route('POST', /^\/api\/login$/, async ({ req, body, res }) => {
     const ip = req.socket.remoteAddress || '?';
@@ -275,12 +309,15 @@ function createApp(config) {
       throw e;
     }
     const session = { sid: crypto.randomBytes(32).toString('hex'), ticket, createdAt: Date.now(), lastSeen: Date.now() };
-    const me = await new CSApi(client, session).me();
+    const api = new CSApi(client, session);
+    const me = await api.me();
+    const info = await api.serverInfo();
+    session.csVersion = info.ok ? info.version : null;
     session.user = {
       id: me.id, name: me.name,
       displayName: [me.first_name, me.last_name].filter(Boolean).join(' ') || me.name,
-      // Same rule as the analyzer: the privilege flag, or the built-in Admin account.
-      isSysAdmin: !!(me.privilege_system_admin_rights || /^admin$/i.test(me.name || '')),
+      // Content Server only returns privilege flags to administrators.
+      isSysAdmin: me.privilege_system_admin_rights === true,
     };
     sessions.set(session.sid, session);
     loginAttempts.delete(ip);
@@ -288,7 +325,7 @@ function createApp(config) {
     store.log(progress, 'Signed in');
     store.save(progress);
     res.setHeader('Set-Cookie', setCookie(session.sid, Math.floor(SESSION_MS / 1000)));
-    return { user: session.user, needsScan: !progress.lastScan, demo: config.demo, csUrl: publicUrl, sandboxName: config.sandboxName };
+    return { user: session.user, needsScan: !progress.lastScan, csUrl: publicUrl, cs: csInfo(session), sandboxName: config.sandboxName };
   }, { auth: false });
 
   route('POST', /^\/api\/logout$/, async ({ session, res }) => {
@@ -297,13 +334,13 @@ function createApp(config) {
     return { ok: true };
   });
 
-  route('GET', /^\/api\/session$/, async ({ session }) => ({ user: session.user, demo: config.demo, csUrl: publicUrl, sandboxName: config.sandboxName }));
+  route('GET', /^\/api\/session$/, async ({ session }) => ({ user: session.user, csUrl: publicUrl, cs: csInfo(session), sandboxName: config.sandboxName }));
 
   route('GET', /^\/api\/overview$/, async ({ session, progress }) => {
     const next = nextMission(progress);
     return {
       user: session.user,
-      demo: config.demo,
+      cs: csInfo(session),
       stats: stats(progress),
       settings: progress.settings,
       next: next ? { ...missionView(next, session, progress), moduleTitle: curriculum.moduleOfMission.get(next.id).title } : null,
@@ -349,16 +386,23 @@ function createApp(config) {
   route('POST', /^\/api\/scan$/, async ({ session, progress, prepared: scan }) => {
     progress.lastScan = scan;
     store.log(progress, `Platform scan: ${scan.inventory.total} items, ${Object.values(scan.features).filter((f) => f.status === 'detected').length} areas detected`);
-    if (scan.user.isSysAdmin) session.user.isSysAdmin = true;
+    session.user.isSysAdmin = scan.user.isSysAdmin;
+    if (scan.server.version) session.csVersion = scan.server.version;
     return { scan };
   }, { prepare: ({ session }) => analyze(new CSApi(client, session), config) });
 
   route('GET', /^\/api\/scan$/, async ({ progress }) => ({ scan: progress.lastScan }));
 
+  // Live report of what each Content Server endpoint the trainer uses returns.
+  route('GET', /^\/api\/connection$/, async ({ session, prepared: report }) => {
+    for (const r of report.rows) if (r.node) r.node.links = nodeLinks(r.node);
+    return { ...report, trainerUrl: client.baseUrl, publicUrl, cs: csInfo(session), user: session.user };
+  }, { prepare: ({ session }) => diagnose(new CSApi(client, session), config) });
+
   const award = (progress, m, method, xp, extra = {}) => {
     const prev = progress.missions[m.id] || { attempts: 0 };
     const firstTime = !isDone(prev);
-    progress.missions[m.id] = { ...prev, ...extra, status: 'done', method: firstTime ? method : prev.method, xp: firstTime ? xp : prev.xp, completedAt: firstTime ? new Date().toISOString() : prev.completedAt, pendingConfirm: false };
+    progress.missions[m.id] = { ...prev, ...extra, status: 'done', method: firstTime ? method : prev.method, xp: firstTime ? xp : prev.xp, completedAt: firstTime ? new Date().toISOString() : prev.completedAt };
     if (firstTime) {
       progress.xp += xp;
       store.log(progress, `Completed “${m.title}” (+${xp} XP)`);
@@ -373,48 +417,47 @@ function createApp(config) {
     if (a.locked.length) throw Object.assign(new Error(`Finish ${a.locked.map((id) => `“${curriculum.missionById.get(id).title}”`).join(' and ')} first.`), { status: 409 });
 
     const levelBefore = levelFor(progress.xp).index;
+    // Everything a check compares against is read live through `api`.
     const ctx = {
       api: new CSApi(client, session),
       refs: progress.refs,
       inputs: body.inputs || {},
-      scan: progress.lastScan,
       vars: varsFor(session, progress),
       refOwners: curriculum.refOwners,
       found: {},
     };
     const result = await verifyMission(m, ctx);
+    for (const r of result.results) if (r.node) r.node.links = nodeLinks(r.node);
     Object.assign(progress.refs, result.captured);
 
     const st = progress.missions[m.id] || { attempts: 0 };
+    delete st.pendingConfirm;
     st.attempts = (st.attempts || 0) + 1;
     st.lastCheck = { at: new Date().toISOString(), status: result.status };
     progress.missions[m.id] = st;
 
+    // Only a check that saw every step on the server completes a mission.
     let xpGained = 0;
     if (result.status === 'pass') xpGained = award(progress, m, 'auto', m.xp);
-    else if (result.status === 'partial' && !isDone(st)) st.pendingConfirm = true;
-    else if (!isDone(st)) store.log(progress, `Checked “${m.title}” — not there yet`);
+    else if (!isDone(st)) store.log(progress, result.status === 'unverified' ? `Checked “${m.title}” — could not be verified on the server` : `Checked “${m.title}” — not there yet`);
 
-    return { result, xpGained, levelUp: levelFor(progress.xp).index > levelBefore ? levelFor(progress.xp) : null, mission: missionView(m, session, progress), stats: stats(progress) };
+    return { result, xpGained, levelUp: levelFor(progress.xp).index > levelBefore ? levelFor(progress.xp) : null, mission: missionView(m, session, progress), stats: stats(progress), cs: csInfo(session) };
   }, { save: true });
 
+  // Practice missions only: things the REST API can't see, completed with a
+  // written reflection (and shown as self-reported, never as verified).
   route('POST', /^\/api\/missions\/([\w-]+)\/confirm$/, async ({ session, progress, params, body }) => {
     const m = curriculum.missionById.get(params[0]);
     if (!m) throw Object.assign(new Error('Unknown mission'), { status: 404 });
-    const st = progress.missions[m.id] || {};
+    if (m.type !== 'practice') throw Object.assign(new Error('This mission is checked on your Content Server — use “Check my work”. It only counts once I have seen the result there.'), { status: 400 });
+    const a = missionAvailability(m, progress);
+    if (a.locked.length) throw Object.assign(new Error(`Finish ${a.locked.map((id) => `“${curriculum.missionById.get(id).title}”`).join(' and ')} first.`), { status: 409 });
     const levelBefore = levelFor(progress.xp).index;
-    let xpGained;
-    if (m.type === 'practice') {
-      const text = String(body.reflection || '').trim();
-      const words = text.split(/\s+/).filter(Boolean).length;
-      const min = m.minWords || 8;
-      if (words < min) throw Object.assign(new Error(`Write at least ${min} words — explaining it is how it sticks.`), { status: 400 });
-      xpGained = award(progress, m, 'self', m.xp, { reflection: text.slice(0, 4000) });
-    } else if (st.pendingConfirm) {
-      xpGained = award(progress, m, 'self-confirmed', Math.round(m.xp * SELF_CONFIRM_XP_RATIO));
-    } else {
-      throw Object.assign(new Error('Use “Check my work” for this mission.'), { status: 400 });
-    }
+    const text = String(body.reflection || '').trim();
+    const words = text.split(/\s+/).filter(Boolean).length;
+    const min = m.minWords || 8;
+    if (words < min) throw Object.assign(new Error(`Write at least ${min} words — explaining it is how it sticks.`), { status: 400 });
+    const xpGained = award(progress, m, 'self', m.xp, { reflection: text.slice(0, 4000) });
     return { xpGained, levelUp: levelFor(progress.xp).index > levelBefore ? levelFor(progress.xp) : null, mission: missionView(m, session, progress), stats: stats(progress) };
   }, { save: true });
 
@@ -563,7 +606,7 @@ function createApp(config) {
         return send(res, 401, { error: e.message, code: 'SESSION_EXPIRED' });
       }
       const status = e.status && e.status >= 400 && e.status < 600 ? e.status : 500;
-      if (status >= 500) console.error(`[${req.method} ${url.pathname}]`, e);
+      if (status >= 500) console.error(`[${req.method} ${url.pathname}]`, e instanceof CSError ? e.message : e);
       send(res, status, { error: e.message || 'Unexpected error', code: e.code || null });
     }
   }
@@ -579,16 +622,13 @@ async function main() {
     console.error(`CS Academy needs Node.js 18 or newer; this is ${process.version}. Use the current LTS from https://nodejs.org (Windows Server 2016 is supported).`);
     process.exit(1);
   }
-  const config = loadConfig(process.argv.slice(2));
-
-  if (config.demo) {
-    const { createMockCS } = require('./lib/mock-cs');
-    const mock = createMockCS({ seed: true });
-    const mockPort = config.port + 1;
-    await new Promise((resolve) => mock.server.listen(mockPort, '127.0.0.1', resolve));
-    config.contentServer = { ...config.contentServer, baseUrl: `http://127.0.0.1:${mockPort}/otcs/cs.exe`, publicUrl: `http://127.0.0.1:${mockPort}/otcs/cs.exe` };
-    config.dataDir = './data-demo';
-    console.log(`[demo] Mock Content Server on http://127.0.0.1:${mockPort}/otcs/cs.exe — sign in as "demo" (any password)`);
+  let config;
+  try {
+    config = loadConfig(process.argv.slice(2));
+  } catch (e) {
+    if (!(e instanceof ConfigError)) throw e;
+    console.error(`\n${e.message}\n`);
+    process.exit(1);
   }
 
   const app = createApp(config);
@@ -597,10 +637,13 @@ async function main() {
     ? https.createServer({ key: fs.readFileSync(config.tls.keyFile), cert: fs.readFileSync(config.tls.certFile) }, app.handle)
     : http.createServer(app.handle);
 
-  server.listen(config.port, config.host, () => {
+  server.listen(config.port, config.host, async () => {
     const shown = config.host === '0.0.0.0' ? 'localhost' : config.host;
     console.log(`CS Academy listening on ${useTls ? 'https' : 'http'}://${shown}:${config.port}`);
     console.log(`Content Server: ${config.contentServer.baseUrl}`);
+    const p = await app.client.probe();
+    if (p.restApi) console.log(`[cs] The Content Server REST API is answering${p.version ? ` (version ${p.version})` : ''}.`);
+    else console.warn(`[cs] WARNING: ${p.error}\n[cs] Learners can't sign in until contentServer.baseUrl points at a working Content Server.`);
   });
 }
 
@@ -608,4 +651,4 @@ if (require.main === module) {
   main().catch((e) => { console.error(e); process.exit(1); });
 }
 
-module.exports = { createApp, loadConfig, levelFor };
+module.exports = { createApp, loadConfig, levelFor, ConfigError };

@@ -22,7 +22,7 @@ module.exports = [
         id: 'a01-version', type: 'investigate', title: 'Identify the server version', xp: 20,
         steps: ['Find the Content Server version (Help ▸ About in the Classic UI, the Administration pages, or ask your administrator).', 'Type it below, e.g. 16.2.4.'],
         inputs: [{ key: 'version', label: 'Content Server version' }],
-        checks: [{ kind: 'answer', input: 'version', source: 'server.version', compare: 'contains', lenient: true, label: 'Server version' }],
+        checks: [{ kind: 'answer', input: 'version', source: 'server.version', compare: 'contains', label: 'Server version' }],
       },
       {
         id: 'a01-request-path', type: 'practice', title: 'Trace a request', xp: 20,

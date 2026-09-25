@@ -10,7 +10,6 @@
   },
   "scripts": {
     "start": "node server.js",
-    "demo": "node server.js --demo",
     "test": "node test/smoke.js",
     "build:legacy": "node tools/build-legacy.js"
   },

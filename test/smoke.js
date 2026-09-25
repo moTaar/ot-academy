@@ -1,7 +1,8 @@
 'use strict';
-// End-to-end test: mock Content Server + trainer, with the test acting as the
-// learner (doing the work through the mock's write endpoints) and checking
-// that the trainer notices.
+// End-to-end test: the mock Content Server (test/mock-cs.js) + the trainer,
+// with the test acting as the learner (doing the work through the mock's write
+// endpoints) and checking that the trainer notices — and that it never reports
+// anything as done that it has not seen on the server.
 //
 //   node test/smoke.js
 
@@ -10,8 +11,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const http = require('http');
-const { createMockCS } = require('../lib/mock-cs');
-const { createApp } = require('../server');
+const { createMockCS } = require('./mock-cs');
+const { createApp, loadConfig, ConfigError } = require('../server');
+const { serverKey } = require('../lib/store');
 const curriculum = require('../curriculum');
 
 const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server.address().port)));
@@ -59,24 +61,33 @@ function csLearner(csBase) {
     addVersion: (id) => call('POST', `/api/v1/nodes/${id}/versions`),
     update: (id, props) => call('PUT', `/api/v1/nodes/${id}`, props),
     del: (id) => call('DELETE', `/api/v1/nodes/${id}`),
+    purge: (id) => call('POST', `/mock/recyclebin/${id}/purge`),
     favorite: (id) => call('POST', `/mock/favorites/${id}`),
     categorize: (id, cat, inherit) => call('POST', `/mock/nodes/${id}/categories/${cat}`, { inherit }),
     grant: (id, rightId) => call('POST', `/mock/nodes/${id}/permissions`, { type: 'custom', right_id: rightId, permissions: ['see', 'see_contents'] }),
     group: (name, members) => call('POST', '/mock/groups', { name, members }),
-    initiate: () => call('POST', '/mock/workflows/initiate', { name: 'Document Approval' }),
+    initiate: (opts = {}) => call('POST', '/mock/workflows/initiate', { name: 'Document Approval', ...opts }),
   };
 }
 
+// An HTTP server that answers every request the same way.
+const stubServer = (status, type, body) => http.createServer((req, res) => { res.writeHead(status, { 'Content-Type': type }); res.end(body); });
+
+function appFor(baseUrl, dataDir) {
+  return createApp({
+    port: 0, host: '127.0.0.1', sandboxName: 'OT Academy', dataDir, sessionHours: 1,
+    contentServer: { baseUrl, timeoutMs: 5000 }, scan: { maxDepth: 3, maxNodes: 500, concurrency: 3 }, tls: {},
+  });
+}
+
 async function main() {
-  const mock = createMockCS({ seed: true });
+  const mock = createMockCS();
   const mockPort = await listen(mock.server);
   const csBase = `http://127.0.0.1:${mockPort}/otcs/cs.exe`;
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'csa-test-'));
+  const extraServers = [];
 
-  const app = createApp({
-    port: 0, host: '127.0.0.1', demo: true, sandboxName: 'OT Academy', dataDir, sessionHours: 1,
-    contentServer: { baseUrl: csBase, timeoutMs: 5000 }, scan: { maxDepth: 3, maxNodes: 500, concurrency: 3 }, tls: {},
-  });
+  const app = appFor(csBase, dataDir);
   const appServer = http.createServer(app.handle);
   const appPort = await listen(appServer);
   const call = browser(`http://127.0.0.1:${appPort}`);
@@ -86,13 +97,78 @@ async function main() {
   const personal = 5000 + student.id;
 
   const check = async (id, inputs) => (await call('POST', `/api/missions/${id}/check`, { inputs })).body;
+  // A second trainer (own browser session) in front of another server.
+  const trainerFor = async (baseUrl) => {
+    const srv = http.createServer(appFor(baseUrl, dataDir).handle);
+    extraServers.push(srv);
+    return browser(`http://127.0.0.1:${await listen(srv)}`);
+  };
 
   console.log('CS Academy smoke test');
 
-  await step('health reports the mock server reachable', async () => {
+  // ---------------------------------------------------------- configuration
+
+  await step('there is no demo mode: --demo is refused', async () => {
+    assert.throws(() => loadConfig(['--demo']), (e) => e instanceof ConfigError && /Demo mode has been removed/.test(e.message));
+  });
+
+  await step('the Content Server URL must be configured explicitly (never taken from the example file)', async () => {
+    const missing = path.join(dataDir, 'no-such-config.json');
+    const saved = process.env.OTA_CS_URL;
+    delete process.env.OTA_CS_URL;
+    try {
+      assert.throws(() => loadConfig(['--config', missing]), (e) => e instanceof ConfigError && /No Content Server is configured/.test(e.message));
+      const noUrl = path.join(dataDir, 'no-url.json');
+      fs.writeFileSync(noUrl, JSON.stringify({ port: 9999 }));
+      assert.throws(() => loadConfig(['--config', noUrl]), ConfigError);
+      assert.equal(loadConfig(['--config', missing, '--cs-url', 'http://cs.example/otcs/cs.exe/']).contentServer.baseUrl, 'http://cs.example/otcs/cs.exe');
+      assert.throws(() => loadConfig(['--config', missing, '--cs-url', 'http://cs.example/otcs/cs.exe?func=llworkspace']), /before "\?func="/);
+      assert.throws(() => loadConfig(['--config', missing, '--cs-url', 'cs.example']), ConfigError);
+      process.env.OTA_CS_URL = 'https://ecm.example.com/otcs/llisapi.dll';
+      assert.equal(loadConfig(['--config', missing]).contentServer.baseUrl, 'https://ecm.example.com/otcs/llisapi.dll');
+    } finally {
+      if (saved === undefined) delete process.env.OTA_CS_URL; else process.env.OTA_CS_URL = saved;
+    }
+  });
+
+  await step('health: the configured server answers as the Content Server REST API', async () => {
     const r = await call('GET', '/api/health');
     assert.equal(r.status, 200);
+    assert.equal(r.body.csUrl, csBase);
     assert.equal(r.body.cs.reachable, true);
+    assert.equal(r.body.cs.restApi, true);
+    assert.equal(r.body.cs.version, '16.2.4');
+    assert.equal('demo' in r.body, false);
+  });
+
+  await step('a web page at the configured URL is not taken for Content Server, and sign-in says why', async () => {
+    const web = stubServer(404, 'text/html', '<html><body>Not Found</body></html>');
+    extraServers.push(web);
+    const other = await trainerFor(`http://127.0.0.1:${await listen(web)}/otcs/cs.exe`);
+    const h = await other('GET', '/api/health');
+    assert.equal(h.body.cs.reachable, true);
+    assert.equal(h.body.cs.restApi, false);
+    assert.match(h.body.cs.error, /web page/);
+    const login = await other('POST', '/api/login', { username: 'student', password: 'x' });
+    assert.equal(login.status, 502);
+    assert.match(login.body.error, /instead of a Content Server ticket/);
+  });
+
+  await step('a protected serverinfo (JSON 401) still identifies Content Server; a closed port is unreachable', async () => {
+    const guarded = stubServer(401, 'application/json', '{"error":"Authentication required"}');
+    extraServers.push(guarded);
+    const other = await trainerFor(`http://127.0.0.1:${await listen(guarded)}/otcs/cs.exe`);
+    const h = await other('GET', '/api/health');
+    assert.equal(h.body.cs.restApi, true);
+    assert.equal(h.body.cs.version, null);
+
+    const closed = http.createServer();
+    const port = await listen(closed);
+    await new Promise((r) => closed.close(r));
+    const nobody = await trainerFor(`http://127.0.0.1:${port}/otcs/cs.exe`);
+    const n = await nobody('GET', '/api/health');
+    assert.equal(n.body.cs.reachable, false);
+    assert.equal(n.body.cs.restApi, false);
   });
 
   await step('Windows Server 2016 / IE11: edge mode, loader and legacy build are served', async () => {
@@ -116,31 +192,40 @@ async function main() {
     assert.equal(builtHash(), sourceHash());
   });
 
+  // ---------------------------------------------------------- sign-in & scan
+
   await step('API rejects unauthenticated and header-less requests', async () => {
     assert.equal((await call('GET', '/api/overview')).status, 401);
     const raw = await fetch(`http://127.0.0.1:${appPort}/api/logout`, { method: 'POST' });
     assert.equal(raw.status, 400);
   });
 
-  await step('wrong password is refused', async () => {
-    const r = await call('POST', '/api/login', { username: 'student', password: 'wrong' });
-    assert.equal(r.status, 401);
+  await step('wrong password and unknown users are refused', async () => {
+    assert.equal((await call('POST', '/api/login', { username: 'student', password: 'wrong' })).status, 401);
+    assert.equal((await call('POST', '/api/login', { username: 'demo', password: 'x' })).status, 401);
   });
 
-  await step('sign in as student', async () => {
+  await step('sign in as student: the session names the Content Server it reads', async () => {
     const r = await call('POST', '/api/login', { username: 'student', password: 'secret' });
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.equal(r.body.user.name, 'student');
+    assert.equal(r.body.user.isSysAdmin, false);
     assert.equal(r.body.needsScan, true);
+    assert.deepEqual(r.body.cs, { url: csBase, version: '16.2.4' });
   });
 
   let scan;
-  await step('platform scan detects areas, categories and maps', async () => {
+  await step('platform scan reads the server: areas, categories, maps, groups (from /members/memberof)', async () => {
     const r = await call('POST', '/api/scan');
     assert.equal(r.status, 200, JSON.stringify(r.body));
     scan = r.body.scan;
+    assert.equal(scan.server.url, csBase);
+    assert.equal(scan.server.version, '16.2.4');
     assert.equal(scan.categories.length, 3);
     assert.equal(scan.workflowMaps.length, 2);
+    assert.deepEqual(scan.groups.map((g) => g.name), ['Trainees']);
+    assert.equal(scan.user.departmentName, 'Trainees');
+    assert.equal(scan.features.core.status, 'detected');
     assert.equal(scan.features.projects.status, 'detected');
     assert.equal(scan.features.businessWorkspaces.status, 'not-detected');
     assert.equal(scan.features.permissions.status, 'detected');
@@ -153,6 +238,7 @@ async function main() {
     const r = await call('GET', '/api/overview');
     assert.equal(r.body.next.id, 'u01-sandbox');
     assert.match(r.body.next.steps[2], /OT Academy/);
+    assert.equal(r.body.cs.url, csBase);
   });
 
   await step('curriculum sent to the browser has no quiz answers', async () => {
@@ -163,18 +249,32 @@ async function main() {
     assert.equal(JSON.stringify(r.body).includes('"explain"'), false);
   });
 
-  await step('mission fails before the work is done', async () => {
+  // ---------------------------------------------------------- missions
+
+  await step('nothing is pre-seeded: the first mission fails until the learner does the work', async () => {
     const r = await check('u01-sandbox');
     assert.equal(r.result.status, 'fail');
+    assert.equal(r.xpGained, 0);
+    assert.equal(r.mission.state.status, undefined);
   });
 
   let sandbox, drafts, review, final, plan;
-  await step('mission passes after creating the sandbox; XP awarded', async () => {
+  await step('mission passes after creating the sandbox; the result links to the real item', async () => {
     sandbox = await cs.create({ type: 0, parent_id: personal, name: 'OT Academy' });
     const r = await check('u01-sandbox');
     assert.equal(r.result.status, 'pass');
     assert.equal(r.xpGained, 30);
     assert.equal(r.stats.xp, 30);
+    const node = r.result.results[0].node;
+    assert.equal(node.id, sandbox);
+    assert.equal(node.links.smart, `${csBase}/app/nodes/${sandbox}`);
+    assert.equal(node.links.classic, `${csBase}?func=ll&objId=${sandbox}&objAction=browse`);
+  });
+
+  await step('auto-checked missions cannot be self-confirmed', async () => {
+    const r = await call('POST', '/api/missions/u01-describe/confirm', {});
+    assert.equal(r.status, 400);
+    assert.match(r.body.error, /Check my work/);
   });
 
   await step('locked mission is refused until prerequisites are done', async () => {
@@ -210,13 +310,13 @@ async function main() {
     assert.equal((await check('u01-describe')).result.status, 'pass');
   });
 
-  await step('investigation answers are compared with the server', async () => {
+  await step('investigation answers are compared with live values (MIME type from the current version)', async () => {
     let r = await check('u01-ids', { sandboxId: '1', login: 'student' });
     assert.deepEqual(r.result.results.map((x) => x.status), ['fail', 'pass']);
     r = await check('u01-ids', { sandboxId: String(sandbox), login: 'STUDENT ' });
     assert.equal(r.result.status, 'pass');
-    r = await check('u02-mime', { mime: 'application/msword' });
-    assert.equal(r.result.status, 'pass');
+    assert.equal((await check('u02-mime', { mime: 'msword' })).result.status, 'fail');
+    assert.equal((await check('u02-mime', { mime: 'application/msword' })).result.status, 'pass');
   });
 
   await step('versions, reserve and unreserve', async () => {
@@ -237,15 +337,43 @@ async function main() {
     assert.equal((await check('u03-copy')).result.status, 'pass');
   });
 
-  await step('delete is detected through the saved node id', async () => {
+  await step('delete: still there fails; in the Recycle Bin passes; purged passes on "no such node"', async () => {
     const tmp = await cs.create({ type: 0, parent_id: sandbox, name: 'Scratch - delete me' });
     assert.equal((await check('u03-temp')).result.status, 'pass');
-    assert.equal((await check('u03-delete')).result.status, 'fail');
+    let r = await check('u03-delete');
+    assert.equal(r.result.status, 'fail');
+    assert.match(r.result.results[0].detail, /still exists/);
     await cs.del(tmp);
+    r = await check('u03-delete');
+    assert.equal(r.result.status, 'pass');
+    assert.match(r.result.results[0].detail, /Recycle Bin/);
+
+    const tmp2 = await cs.create({ type: 0, parent_id: sandbox, name: 'Scratch - delete me' });
+    assert.equal((await check('u03-temp')).result.results[0].node.id, tmp2);
+    await cs.del(tmp2);
+    await cs.purge(tmp2);
+    r = await check('u03-delete');
+    assert.equal(r.result.status, 'pass');
+    assert.match(r.result.results[0].detail, /no longer returns/);
+  });
+
+  await step('delete never passes on a server error', async () => {
+    const tmp3 = await cs.create({ type: 0, parent_id: sandbox, name: 'Scratch - delete me' });
+    assert.equal((await check('u03-temp')).result.status, 'pass');
+    mock.state.broken.push(/^\/api\/v[12]\/nodes\/\d+$/, /^\/api\/v2\/volumes\/recyclebin\/nodes$/);
+    try {
+      const r = await check('u03-delete');
+      assert.equal(r.result.status, 'unverified');
+      assert.equal(r.result.results[0].status, 'unknown');
+      assert.match(r.result.results[0].detail, /HTTP 500/);
+    } finally {
+      mock.state.broken.length = 0;
+    }
+    await cs.del(tmp3);
     assert.equal((await check('u03-delete')).result.status, 'pass');
   });
 
-  await step('shortcut must point at the right document', async () => {
+  await step('shortcut must point at the right document (original_id is only in the v1 answer)', async () => {
     const other = await cs.create({ type: 144, parent_id: drafts, name: 'Other.txt' });
     const sc = await cs.create({ type: 1, parent_id: review, name: 'Shortcut', original_id: other });
     let r = await check('u06-shortcut');
@@ -256,30 +384,40 @@ async function main() {
     assert.equal(r.result.status, 'pass');
   });
 
-  await step('favorites, categories and inheritance', async () => {
+  await step('favorites, categories (v1, and v2 with ?metadata) and inheritance', async () => {
     assert.equal((await check('u06-favorite')).result.status, 'fail');
     await cs.favorite(plan);
     assert.equal((await check('u06-favorite')).result.status, 'pass');
     await cs.categorize(plan, 2101);
-    assert.equal((await check('u07-apply')).result.status, 'pass');
+    let r = await check('u07-apply');
+    assert.equal(r.result.status, 'pass');
+    assert.match(r.result.results[0].detail, /Contract/);
+    mock.state.unsupported.push(/^\/api\/v1\/nodes\/\d+\/categories$/);
+    try {
+      r = await check('u07-apply');
+      assert.equal(r.result.status, 'pass');
+      assert.match(r.result.results[0].detail, /Contract/);
+    } finally {
+      mock.state.unsupported.pop();
+    }
     await cs.categorize(final, 2102);
     assert.equal((await check('u07-folder')).result.status, 'pass');
     const inh = await cs.create({ type: 144, parent_id: final, name: 'Inherited Metadata Test.docx' });
     assert.equal((await check('u07-inherit')).result.status, 'fail');
     await cs.categorize(inh, 2102);
-    const r = await check('u07-inherit');
+    r = await check('u07-inherit');
     assert.equal(r.result.status, 'pass');
     assert.match(r.result.results[1].detail, /Project Info/);
   });
 
-  await step('permissions: assigned access and private folder', async () => {
+  await step('permissions: assigned access, private folder and owner', async () => {
     assert.equal((await check('u10-grant')).result.status, 'fail');
     await cs.grant(review, 1103);
     assert.equal((await check('u10-grant')).result.status, 'pass');
     await cs.create({ type: 0, parent_id: sandbox, name: 'Private' });
     assert.equal((await check('u10-private')).result.status, 'pass');
-    const r = await check('u10-owner', { owner: 'student' });
-    assert.equal(r.result.status, 'pass');
+    assert.equal((await check('u10-owner', { owner: 'student' })).result.status, 'pass');
+    assert.equal((await check('u10-owner', { owner: 'Admin' })).result.status, 'fail');
   });
 
   await step('rename is tracked by node id', async () => {
@@ -288,35 +426,83 @@ async function main() {
     assert.equal((await check('u13-rename')).result.status, 'pass');
   });
 
-  await step('group creation and workflow initiation', async () => {
+  await step('nickname is resolved through the nicknames endpoint', async () => {
+    let r = await check('u08-nickname');
+    assert.equal(r.result.status, 'fail');
+    await cs.update(drafts, { nickname: 'ota-student' });
+    r = await check('u08-nickname');
+    assert.equal(r.result.status, 'fail');
+    assert.match(r.result.results[0].detail, /belongs to “01 Drafts”/);
+    await cs.update(drafts, { nickname: String(drafts) });
+    await cs.update(sandbox, { nickname: 'ota-student' });
+    assert.equal((await check('u08-nickname')).result.status, 'pass');
+  });
+
+  await step('hidden items are still seen', async () => {
+    await cs.create({ type: 146, parent_id: sandbox, name: 'customview.html', hidden: true });
+    assert.equal((await check('c09-customview')).result.status, 'pass');
+  });
+
+  await step('a step the server cannot answer is "unverified": no XP, no self-confirmation, not done', async () => {
+    const urlItem = await cs.create({ type: 140, parent_id: sandbox, name: 'OpenText Support', url: 'https://support.opentext.com' });
+    const r = await check('u02-url');
+    assert.equal(r.result.status, 'unverified');
+    assert.deepEqual(r.result.results.map((x) => x.status), ['pass', 'unknown']);
+    assert.equal(r.result.results[0].node.id, urlItem);
+    assert.match(r.result.results[1].detail, /doesn't return “url”/);
+    assert.equal(r.xpGained, 0);
+    assert.notEqual(r.mission.state.status, 'done');
+    assert.equal((await call('POST', '/api/missions/u02-url/confirm', {})).status, 400);
+    const a = await check('a06-types', { count: '0' });
+    assert.equal(a.result.status, 'unverified');
+    assert.match(a.result.results[0].detail, /mappings registry/);
+  });
+
+  await step('groups come from /members/memberof; workflows count only those the learner started', async () => {
+    assert.equal((await check('u11-groups', { group: 'trainees' })).result.status, 'pass');
+    assert.equal((await check('u11-groups', { group: 'Sales' })).result.status, 'fail');
+    assert.equal((await check('u11-department', { dept: 'Trainees' })).result.status, 'pass');
     assert.equal((await check('u11-create-group')).result.status, 'fail');
     await cs.group('OTA student Reviewers', [student.id]);
     assert.equal((await check('u11-create-group')).result.status, 'pass');
+
+    const admin = csLearner(csBase);
+    await admin.login('Admin');
+    await admin.initiate({ manager: student.id, status: 'completed' });
     assert.equal((await check('c02-initiate')).result.status, 'fail');
-    await cs.initiate();
+    await cs.initiate({ status: 'workflowlate' });
     assert.equal((await check('c02-initiate')).result.status, 'pass');
-    assert.equal((await check('u11-groups', { group: 'trainees' })).result.status, 'pass');
   });
 
-  await step('lenient answer -> partial -> self-confirm at reduced XP', async () => {
-    const r = await check('c02-find-map', { map: 'Some map I found deep down' });
-    assert.equal(r.result.status, 'partial');
-    const c = await call('POST', '/api/missions/c02-find-map/confirm', {});
-    assert.equal(c.status, 200);
-    assert.equal(c.body.xpGained, Math.round(curriculum.missionById.get('c02-find-map').xp * 0.7));
+  await step('workflow map is verified by opening the node ID the learner found', async () => {
+    let r = await check('c02-find-map', { mapId: String(drafts), map: '01 Drafts' });
+    assert.deepEqual(r.result.results.map((x) => x.status), ['fail', 'blocked']);
+    r = await check('c02-find-map', { mapId: '2041', map: 'Invoice Review' });
+    assert.deepEqual(r.result.results.map((x) => x.status), ['pass', 'fail']);
+    r = await check('c02-find-map', { mapId: '2041', map: 'document approval' });
+    assert.equal(r.result.status, 'pass');
+    assert.equal(r.xpGained, 20);
   });
 
-  await step('confirm is refused for missions that are auto-checked', async () => {
-    const r = await call('POST', '/api/missions/u06-collection/confirm', {});
-    assert.equal(r.status, 400);
+  await step('other investigations read live values: user ID, assignments, version, rights, classifications', async () => {
+    assert.equal((await check('u12-userid', { uid: String(student.id) })).result.status, 'pass');
+    assert.equal((await check('c02-assignments', { count: '2' })).result.status, 'pass');
+    assert.equal((await check('c02-assignments', { count: '3' })).result.status, 'fail');
+    assert.equal((await check('a01-version', { version: '16.2.4' })).result.status, 'pass');
+    assert.equal((await check('a01-version', { version: '21.4' })).result.status, 'fail');
+    assert.equal((await check('a02-rights', { sysadmin: 'yes' })).result.status, 'fail');
+    assert.equal((await check('a02-rights', { sysadmin: 'no' })).result.status, 'pass');
+    assert.equal((await check('c08-tree', { tree: 'Hobbies' })).result.status, 'fail');
+    assert.equal((await check('c08-tree', { tree: 'subjects' })).result.status, 'pass');
   });
 
-  await step('practice mission needs a real reflection', async () => {
+  await step('practice mission needs a real reflection and is recorded as self-reported', async () => {
     let r = await call('POST', '/api/missions/u01-two-uis/confirm', { reflection: 'ok' });
     assert.equal(r.status, 400);
     r = await call('POST', '/api/missions/u01-two-uis/confirm', { reflection: 'Smart View uses tiles and a toolbar while Classic has the Functions menu; help is under the question mark.' });
     assert.equal(r.status, 200);
     assert.ok(r.body.xpGained > 0);
+    assert.equal(r.body.mission.state.method, 'self');
   });
 
   await step('quiz grading on the server', async () => {
@@ -342,21 +528,58 @@ async function main() {
     assert.equal(again.status, 410);
   });
 
-  await step('progress persisted to disk', async () => {
-    const file = path.join(dataDir, 'progress', `${student.id}.json`);
+  await step('progress is stored per Content Server', async () => {
+    const file = path.join(dataDir, 'progress', serverKey(csBase), `${student.id}.json`);
     const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+    assert.equal(saved.server, csBase);
     assert.equal(saved.missions['u01-sandbox'].status, 'done');
+    assert.equal(saved.missions['u02-url'].status, undefined);
     assert.equal(saved.refs.sandbox.id, sandbox);
     assert.ok(saved.xp > 300);
+    assert.notEqual(serverKey(csBase), serverKey('http://other-host/otcs/cs.exe'));
   });
 
-  await step('roster is admin-only', async () => {
+  await step('connection report shows what each endpoint returned', async () => {
+    const r = await call('GET', '/api/connection');
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.trainerUrl, csBase);
+    const row = (area) => r.body.rows.find((x) => x.area === area);
+    assert.match(row('Your account').detail, new RegExp(`student · user ID ${student.id}`));
+    assert.equal(row('Server version').detail, 'Content Server 16.2.4');
+    assert.equal(row('Personal Workspace').node.id, personal);
+    assert.match(row('Training folder “OT Academy”').detail, new RegExp(`ID ${sandbox}`));
+    assert.equal(row('Your groups').detail, 'Trainees, OTA student Reviewers');
+    const bw = row('Business workspace types (Extended ECM)');
+    assert.equal(bw.ok, false);
+    assert.equal(bw.optional, true);
+    assert.deepEqual(r.body.rows.filter((x) => !x.ok && !x.optional), []);
+  });
+
+  await step('roster is admin-only; admin rights come from the privilege flag', async () => {
     assert.equal((await call('GET', '/api/roster')).status, 403);
     const admin = browser(`http://127.0.0.1:${appPort}`);
-    await admin('POST', '/api/login', { username: 'Admin', password: 'x' });
+    const login = await admin('POST', '/api/login', { username: 'Admin', password: 'x' });
+    assert.equal(login.body.user.isSysAdmin, true);
     const r = await admin('GET', '/api/roster');
     assert.equal(r.status, 200);
     assert.ok(r.body.learners.some((l) => l.name === 'student'));
+    assert.equal((await admin('POST', '/api/missions/a02-rights/check', { inputs: { sysadmin: 'yes' } })).body.result.status, 'pass');
+  });
+
+  await step('an unreachable Content Server is an error, never a result', async () => {
+    const down = createMockCS();
+    const downServer = down.server;
+    const port = await listen(downServer);
+    const other = await trainerFor(`http://127.0.0.1:${port}/otcs/cs.exe`);
+    assert.equal((await other('POST', '/api/login', { username: 'student', password: 'x' })).status, 200);
+    await new Promise((r) => downServer.close(r));
+    downServer.closeAllConnections();
+    const r = await other('POST', '/api/missions/u01-sandbox/check', {});
+    assert.equal(r.status, 502);
+    assert.match(r.body.error, /Cannot reach Content Server/);
+    const p = await other('GET', '/api/progress');
+    assert.equal(p.body.stats.xp, 0);
+    assert.equal(p.body.activity.some((a) => /Checked/.test(a.text)), false);
   });
 
   await step('expired Content Server ticket signs the learner out', async () => {
@@ -376,9 +599,12 @@ async function main() {
     assert.equal(o.body.next.id, 'u01-sandbox');
   });
 
+  await step('the trainer only called documented endpoints the mock implements', async () => {
+    assert.deepEqual(mock.state.unknown, []);
+  });
+
   console.log(`\n${passed} checks passed`);
-  appServer.close();
-  mock.server.close();
+  for (const s of [appServer, mock.server, ...extraServers]) if (s.listening) s.close();
   fs.rmSync(dataDir, { recursive: true, force: true });
 }
 

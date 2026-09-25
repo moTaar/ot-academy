@@ -50,9 +50,19 @@ module.exports = [
     missions: [
       {
         id: 'c02-find-map', type: 'investigate', title: 'Find a workflow map', xp: 20,
-        steps: ['Browse the Enterprise Workspace (or ask a colleague) to find a workflow map you are allowed to start.', 'Type its exact name.'],
-        inputs: [{ key: 'map', label: 'Name of a workflow map' }],
-        checks: [{ kind: 'answer', input: 'map', source: 'workflowMaps', compare: 'text', lenient: true, label: 'Workflow map name' }],
+        steps: [
+          'Browse the Enterprise Workspace (or ask a colleague) to find a workflow map you are allowed to start.',
+          'Note its node ID (after objId= in the Classic UI, after /nodes/ in Smart View) and its exact name.',
+          'Type both below.',
+        ],
+        inputs: [
+          { key: 'mapId', label: 'Node ID of the workflow map', placeholder: 'e.g. 123456' },
+          { key: 'map', label: 'Its exact name' },
+        ],
+        checks: [
+          { kind: 'nodeAnswer', input: 'mapId', types: [128], typeName: '^workflow map$', kindLabel: 'a workflow map', saveAs: 'wfMap', label: 'The ID opens a workflow map' },
+          { kind: 'answer', input: 'map', source: 'ref.name:wfMap', compare: 'text', label: 'The name matches that map' },
+        ],
       },
       {
         id: 'c02-initiate', type: 'hands-on', title: 'Start a workflow on your document', xp: 40, requires: ['u02-upload'],
@@ -290,7 +300,7 @@ module.exports = [
         id: 'c08-tree', type: 'investigate', title: 'Find a classification tree', xp: 20,
         steps: ['Open the Classifications volume (Classic: Enterprise ▸ Classifications).', 'Type the name of one top-level tree.'],
         inputs: [{ key: 'tree', label: 'A classification tree' }],
-        checks: [{ kind: 'answer', input: 'tree', source: 'classificationTrees', compare: 'text', lenient: true, label: 'Classification tree name' }],
+        checks: [{ kind: 'answer', input: 'tree', source: 'classificationTrees', compare: 'text', label: 'Classification tree name' }],
       },
       {
         id: 'c08-apply', type: 'hands-on', title: 'Classify your document', xp: 30, requires: ['u02-upload'],

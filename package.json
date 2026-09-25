@@ -1,0 +1,16 @@
+{
+  "name": "cs-academy",
+  "version": "1.0.0",
+  "description": "Hands-on trainer for OpenText Content Server 16.x: scans the platform through its REST API, assigns missions and checks the learner's work live.",
+  "main": "server.js",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "demo": "node server.js --demo",
+    "test": "node test/smoke.js"
+  }
+}

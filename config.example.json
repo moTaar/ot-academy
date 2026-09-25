@@ -1,0 +1,27 @@
+{
+  "port": 8420,
+  "host": "0.0.0.0",
+
+  "contentServer": {
+    "baseUrl": "http://localhost/otcs/cs.exe",
+    "publicUrl": "",
+    "allowSelfSignedCerts": false,
+    "timeoutMs": 20000
+  },
+
+  "sandboxName": "OT Academy",
+
+  "scan": {
+    "maxDepth": 2,
+    "maxNodes": 1500,
+    "concurrency": 4
+  },
+
+  "tls": {
+    "keyFile": "",
+    "certFile": ""
+  },
+
+  "dataDir": "./data",
+  "sessionHours": 8
+}

@@ -49,7 +49,7 @@ The trainer does not start until you tell it which Content Server to use — the
    - `http://localhost/otcs/cs.exe` (typical when running on the CS server)
    - `https://ecm.example.com/otcs/llisapi.dll` (IIS)
    - `http://ecm.example.com:8080/otcs/cs` (Tomcat)
-3. If learners reach Content Server at a different address than the trainer does, set `contentServer.publicUrl` to the address their browsers use. It is only used for “Open in Smart View / Classic UI” links.
+3. If learners reach Content Server at a different address than the trainer does, set `contentServer.publicUrl` to the address their browsers use. It is only used for “Open in Smart View / Classic UI” links. (Not needed when Content Server runs on the same machine as the trainer — see [Sign in from other devices](#sign-in-from-other-devices).)
 4. Start it:
 
 ```bash
@@ -62,15 +62,41 @@ At start-up the trainer calls `GET /api/v1/serverinfo` and prints whether a Cont
 
 Learners open `http://<server>:8420` and sign in with their normal Content Server credentials (OTDS users included — sign-in goes through `/api/v1/auth`).
 
+### Sign in from other devices
+
+The trainer listens on every network interface (`"host": "0.0.0.0"`), so laptops, tablets and phones on the same network can use it. Each device signs in on its own; a learner who signs in on two devices sees the same progress on both.
+
+1. Start it. The console lists the addresses other devices can use:
+
+   ```
+   CS Academy listening on http://localhost:8420
+     Other devices on the network sign in at: http://XECM038:8420  http://192.168.1.20:8420
+   ```
+
+2. **Windows Firewall** blocks those devices until a rule lets them in. Run this once (Windows asks for administrator rights):
+
+   ```bash
+   start.bat allow-network
+   ```
+
+   It adds the inbound rule *CS Academy (TCP 8420)* for the configured port. If Windows had created rules that block `node.exe` (it does that when its “allow access?” prompt is cancelled — and a block rule beats any allow rule), it lists them and offers to disable them. While the rule is missing, the trainer says so when it starts.
+3. On the other device, open one of the listed addresses. Use the IP address if the computer's name doesn't resolve there (phones usually can't resolve Windows computer names).
+
+Links to Content Server follow the device: when Content Server runs on the same machine as the trainer (`baseUrl` is `localhost` or this computer's name or address), a device that opened `http://192.168.1.20:8420` gets links to `http://192.168.1.20/otcs/…`, so “Open in Smart View” works there too. Set `contentServer.publicUrl` to use one fixed address for everyone instead.
+
+If the trainer runs in a virtual machine, other devices can only reach it when the VM's network adapter is bridged (or the host forwards port 8420 to it); with a NAT-only adapter only the host can.
+
+Passwords travel in clear text over plain HTTP, so on a network you don't trust, [serve it over HTTPS](#https-recommended).
+
 ### Configuration
 
 | Key | Default | Meaning |
 |---|---|---|
-| `port`, `host` | `8420`, `0.0.0.0` | Where the trainer listens |
+| `port`, `host` | `8420`, `0.0.0.0` | Where the trainer listens. `0.0.0.0`: all network interfaces (other devices can sign in); `127.0.0.1`: this computer only |
 | `contentServer.baseUrl` | *(required)* | Content Server URL used by the trainer. Never taken from `config.example.json` |
-| `contentServer.publicUrl` | same as `baseUrl` | Content Server URL used in links shown to learners |
+| `contentServer.publicUrl` | same as `baseUrl`, under the name each device used to reach the trainer when Content Server is on this machine | Content Server URL used in links shown to learners |
 | `contentServer.allowSelfSignedCerts` | `false` | Accept a self-signed HTTPS certificate on Content Server |
-| `contentServer.timeoutMs` | `20000` | Per-request timeout |
+| `contentServer.timeoutMs` | `20000` | Per-request timeout. In a mission check a call that takes longer is an error; in the platform scan and on the Connection page it is reported on its own row/area (as *unknown*), and the rest still runs |
 | `sandboxName` | `OT Academy` | Name of the training folder each learner creates in their Personal Workspace |
 | `scan.maxDepth` / `scan.maxNodes` | `2` / `1500` | How deep and how wide the platform scan goes |
 | `scan.concurrency` | `4` | Parallel requests during a scan |

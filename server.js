@@ -4,6 +4,7 @@
 //   node server.js                  use config.json
 //   node server.js --config x       use another config file
 //   node server.js --cs-url <url>   train against this Content Server
+//   start.bat allow-network         let other devices through Windows Firewall
 //
 // There is no demo or offline mode: every check reads the real Content Server
 // the trainer is configured for.
@@ -13,6 +14,8 @@ const path = require('path');
 const http = require('http');
 const https = require('https');
 const crypto = require('crypto');
+const os = require('os');
+const { execFile } = require('child_process');
 
 const { CSClient, CSError } = require('./lib/cs-client');
 const { CSApi } = require('./lib/cs-api');
@@ -81,6 +84,35 @@ function loadConfig(argv) {
   if (process.env.OTA_PORT) cfg.port = Number(process.env.OTA_PORT);
   return cfg;
 }
+
+// ---------------------------------------------------------------- network
+
+const LOOPBACK = /^(localhost|127(?:\.\d+){3}|\[::1\])$/i;
+
+// This computer's IPv4 addresses that other devices can use (no loopback or
+// self-assigned 169.254.x.x ones).
+function networkAddresses() {
+  const out = [];
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const a of list || []) {
+      if ((a.family === 'IPv4' || a.family === 4) && !a.internal && !a.address.startsWith('169.254.')) out.push(a.address);
+    }
+  }
+  return out;
+}
+
+function isThisComputer(host) {
+  const me = os.hostname().toLowerCase();
+  if (LOOPBACK.test(host) || host === me || host.startsWith(`${me}.`)) return true;
+  const bare = host.replace(/^\[|\]$/g, '');
+  return Object.values(os.networkInterfaces()).some((list) => (list || []).some((a) => a.address.toLowerCase() === bare));
+}
+
+// Whether the Windows Firewall rule that start.bat allow-network
+// (tools/allow-network.ps1) creates for this port exists.
+const hasFirewallRule = (port) => new Promise((resolve) => {
+  execFile('netsh', ['advfirewall', 'firewall', 'show', 'rule', `name=CS Academy (TCP ${port})`], { windowsHide: true, timeout: 15000 }, (err) => resolve(!err));
+});
 
 // ---------------------------------------------------------------- helpers
 
@@ -159,6 +191,21 @@ function nextMission(progress) {
 function createApp(config) {
   const client = new CSClient(config.contentServer);
   const publicUrl = (config.contentServer.publicUrl || config.contentServer.baseUrl).replace(/\/+$/, '');
+  // Where a learner's browser finds Content Server: contentServer.publicUrl,
+  // else baseUrl. When baseUrl is this very computer, a browser on another
+  // device can't use a name like "localhost", but it can reach Content Server
+  // under the name it used to reach the trainer — so links use that name.
+  const csHost = new URL(publicUrl).hostname.toLowerCase();
+  const csOnThisComputer = !config.contentServer.publicUrl && isThisComputer(csHost);
+  const publicUrlFor = (req) => {
+    if (!csOnThisComputer || !req.headers.host) return publicUrl;
+    let host;
+    try { host = new URL(`http://${req.headers.host}`).hostname.toLowerCase(); } catch { return publicUrl; }
+    if (LOOPBACK.test(host) || host === csHost) return publicUrl;
+    const u = new URL(publicUrl);
+    u.hostname = host;
+    return u.href.replace(/\/+$/, '');
+  };
   const store = new Store(path.resolve(__dirname, config.dataDir), client.baseUrl);
   const legacy = store.legacyFiles();
   if (legacy.length) {
@@ -183,13 +230,14 @@ function createApp(config) {
       displayName: session.user.displayName,
       category: scan && scan.categories[0] ? scan.categories[0].name : 'any category available to you',
       group: scan && scan.groups[0] ? scan.groups[0].name : 'a group you belong to',
-      csUrl: publicUrl,
-      smartUrl: `${publicUrl}/app`,
+      csUrl: session.publicUrl,
+      smartUrl: `${session.publicUrl}/app`,
     };
   };
 
-  const linksFor = (key, progress) => {
+  const linksFor = (key, session, progress) => {
     if (!key) return null;
+    const publicUrl = session.publicUrl;
     if (key === 'personal') {
       const v = progress.lastScan && progress.lastScan.volumes.find((x) => x.key === 'personal');
       return { classic: `${publicUrl}?func=ll&objtype=142&objAction=browse`, smart: v && v.id ? `${publicUrl}/app/nodes/${v.id}` : `${publicUrl}/app` };
@@ -200,12 +248,12 @@ function createApp(config) {
   };
 
   // Where a learner can see, in Content Server itself, the item a check looked at.
-  const nodeLinks = (n) => ({
+  const nodeLinks = (n, publicUrl) => ({
     smart: `${publicUrl}/app/nodes/${n.id}`,
     classic: `${publicUrl}?func=ll&objId=${n.id}&objAction=${n.container ? 'browse' : 'properties'}`,
   });
 
-  const csInfo = (session) => ({ url: publicUrl, version: session.csVersion || null });
+  const csInfo = (session) => ({ url: session.publicUrl, version: session.csVersion || null });
 
   const missionView = (m, session, progress) => {
     const vars = varsFor(session, progress);
@@ -214,7 +262,7 @@ function createApp(config) {
       ...curriculum.publicMission(m, vars),
       state: st,
       availability: missionAvailability(m, progress),
-      links: linksFor(m.open, progress),
+      links: linksFor(m.open, session, progress),
     };
   };
 
@@ -290,8 +338,8 @@ function createApp(config) {
     }
   }
 
-  route('GET', /^\/api\/health$/, async () => ({
-    ok: true, csUrl: publicUrl, sandboxName: config.sandboxName, missions: curriculum.missionById.size, cs: await client.probe(),
+  route('GET', /^\/api\/health$/, async ({ req }) => ({
+    ok: true, csUrl: publicUrlFor(req), sandboxName: config.sandboxName, missions: curriculum.missionById.size, cs: await client.probe(),
   }), { auth: false });
 
   route('POST', /^\/api\/login$/, async ({ req, body, res }) => {
@@ -308,7 +356,7 @@ function createApp(config) {
       if (e.code === 'BAD_LOGIN') { a.count++; loginAttempts.set(ip, a); }
       throw e;
     }
-    const session = { sid: crypto.randomBytes(32).toString('hex'), ticket, createdAt: Date.now(), lastSeen: Date.now() };
+    const session = { sid: crypto.randomBytes(32).toString('hex'), ticket, createdAt: Date.now(), lastSeen: Date.now(), publicUrl: publicUrlFor(req) };
     const api = new CSApi(client, session);
     const me = await api.me();
     const info = await api.serverInfo();
@@ -325,7 +373,7 @@ function createApp(config) {
     store.log(progress, 'Signed in');
     store.save(progress);
     res.setHeader('Set-Cookie', setCookie(session.sid, Math.floor(SESSION_MS / 1000)));
-    return { user: session.user, needsScan: !progress.lastScan, csUrl: publicUrl, cs: csInfo(session), sandboxName: config.sandboxName };
+    return { user: session.user, needsScan: !progress.lastScan, csUrl: session.publicUrl, cs: csInfo(session), sandboxName: config.sandboxName };
   }, { auth: false });
 
   route('POST', /^\/api\/logout$/, async ({ session, res }) => {
@@ -334,7 +382,7 @@ function createApp(config) {
     return { ok: true };
   });
 
-  route('GET', /^\/api\/session$/, async ({ session }) => ({ user: session.user, csUrl: publicUrl, cs: csInfo(session), sandboxName: config.sandboxName }));
+  route('GET', /^\/api\/session$/, async ({ session }) => ({ user: session.user, csUrl: session.publicUrl, cs: csInfo(session), sandboxName: config.sandboxName }));
 
   route('GET', /^\/api\/overview$/, async ({ session, progress }) => {
     const next = nextMission(progress);
@@ -346,7 +394,7 @@ function createApp(config) {
       next: next ? { ...missionView(next, session, progress), moduleTitle: curriculum.moduleOfMission.get(next.id).title } : null,
       scan: progress.lastScan ? { scannedAt: progress.lastScan.scannedAt, notes: progress.lastScan.notes, server: progress.lastScan.server, counts: progress.lastScan.counts, inventoryTotal: progress.lastScan.inventory.total } : null,
       activity: progress.activity.slice(0, 8),
-      csUrl: publicUrl,
+      csUrl: session.publicUrl,
     };
   });
 
@@ -389,15 +437,15 @@ function createApp(config) {
     session.user.isSysAdmin = scan.user.isSysAdmin;
     if (scan.server.version) session.csVersion = scan.server.version;
     return { scan };
-  }, { prepare: ({ session }) => analyze(new CSApi(client, session), config) });
+  }, { prepare: ({ session }) => analyze(new CSApi(client, session, { tolerateTimeouts: true }), config) });
 
   route('GET', /^\/api\/scan$/, async ({ progress }) => ({ scan: progress.lastScan }));
 
   // Live report of what each Content Server endpoint the trainer uses returns.
   route('GET', /^\/api\/connection$/, async ({ session, prepared: report }) => {
-    for (const r of report.rows) if (r.node) r.node.links = nodeLinks(r.node);
-    return { ...report, trainerUrl: client.baseUrl, publicUrl, cs: csInfo(session), user: session.user };
-  }, { prepare: ({ session }) => diagnose(new CSApi(client, session), config) });
+    for (const r of report.rows) if (r.node) r.node.links = nodeLinks(r.node, session.publicUrl);
+    return { ...report, trainerUrl: client.baseUrl, publicUrl: session.publicUrl, cs: csInfo(session), user: session.user };
+  }, { prepare: ({ session }) => diagnose(new CSApi(client, session, { tolerateTimeouts: true }), config) });
 
   const award = (progress, m, method, xp, extra = {}) => {
     const prev = progress.missions[m.id] || { attempts: 0 };
@@ -427,7 +475,7 @@ function createApp(config) {
       found: {},
     };
     const result = await verifyMission(m, ctx);
-    for (const r of result.results) if (r.node) r.node.links = nodeLinks(r.node);
+    for (const r of result.results) if (r.node) r.node.links = nodeLinks(r.node, session.publicUrl);
     Object.assign(progress.refs, result.captured);
 
     const st = progress.missions[m.id] || { attempts: 0 };
@@ -590,6 +638,7 @@ function createApp(config) {
         ctx.session = sid ? sessions.get(sid) : null;
         if (!ctx.session) return send(res, 401, { error: 'Please sign in.', code: 'NO_SESSION' });
         ctx.session.lastSeen = Date.now();
+        ctx.session.publicUrl = publicUrlFor(req);
         if (r.prepare) ctx.prepared = await r.prepare(ctx);
         out = await withLock(ctx.session.user.id, async () => {
           ctx.progress = store.load(ctx.session.user);
@@ -638,8 +687,18 @@ async function main() {
     : http.createServer(app.handle);
 
   server.listen(config.port, config.host, async () => {
-    const shown = config.host === '0.0.0.0' ? 'localhost' : config.host;
-    console.log(`CS Academy listening on ${useTls ? 'https' : 'http'}://${shown}:${config.port}`);
+    const proto = useTls ? 'https' : 'http';
+    const everywhere = !config.host || config.host === '0.0.0.0' || config.host === '::';
+    console.log(`CS Academy listening on ${proto}://${everywhere ? 'localhost' : config.host}:${config.port}`);
+    if (everywhere) {
+      console.log(`  Other devices on the network sign in at: ${[os.hostname(), ...networkAddresses()].map((h) => `${proto}://${h}:${config.port}`).join('  ')}`);
+      // Windows Firewall drops connections from other devices until a rule lets them in.
+      if (process.platform === 'win32' && !(await hasFirewallRule(config.port))) {
+        console.log('  If they can\'t connect, run "start.bat allow-network" once to let them through Windows Firewall (it asks for administrator rights).');
+      }
+    } else if (LOOPBACK.test(config.host)) {
+      console.log(`  Only this computer can open it: "host" is "${config.host}" in config.json. Set it to "0.0.0.0" to let other devices sign in.`);
+    }
     console.log(`Content Server: ${config.contentServer.baseUrl}`);
     const p = await app.client.probe();
     if (p.restApi) console.log(`[cs] The Content Server REST API is answering${p.version ? ` (version ${p.version})` : ''}.`);

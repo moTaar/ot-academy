@@ -31,17 +31,26 @@ async function step(name, fn) {
   }
 }
 
-function browser(base) {
+// `host`: the name the browser uses for the trainer (as on another device),
+// sent as the Host header; the request itself still goes to `base`.
+function browser(base, { host } = {}) {
+  const { hostname, port } = new URL(base);
   let cookie = '';
-  return async function call(method, url, body) {
-    const res = await fetch(base + url, {
-      method,
-      headers: { 'Content-Type': 'application/json', 'X-CSA': '1', ...(cookie ? { Cookie: cookie } : {}) },
-      body: body ? JSON.stringify(body) : undefined,
+  return function call(method, url, body) {
+    const headers = { 'Content-Type': 'application/json', 'X-CSA': '1', ...(cookie ? { Cookie: cookie } : {}), ...(host ? { Host: host } : {}) };
+    return new Promise((resolve, reject) => {
+      const req = http.request({ hostname, port, method, path: url, headers }, (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+          const set = res.headers['set-cookie'];
+          if (set) cookie = set[0].split(';')[0];
+          try { resolve({ status: res.statusCode, body: JSON.parse(Buffer.concat(chunks).toString('utf8')) }); } catch (e) { reject(e); }
+        });
+      });
+      req.on('error', reject);
+      req.end(body ? JSON.stringify(body) : undefined);
     });
-    const set = res.headers.get('set-cookie');
-    if (set) cookie = set.split(';')[0];
-    return { status: res.status, body: await res.json() };
   };
 }
 
@@ -73,10 +82,10 @@ function csLearner(csBase) {
 // An HTTP server that answers every request the same way.
 const stubServer = (status, type, body) => http.createServer((req, res) => { res.writeHead(status, { 'Content-Type': type }); res.end(body); });
 
-function appFor(baseUrl, dataDir) {
+function appFor(baseUrl, dataDir, { timeoutMs = 5000, publicUrl = '' } = {}) {
   return createApp({
     port: 0, host: '127.0.0.1', sandboxName: 'OT Academy', dataDir, sessionHours: 1,
-    contentServer: { baseUrl, timeoutMs: 5000 }, scan: { maxDepth: 3, maxNodes: 500, concurrency: 3 }, tls: {},
+    contentServer: { baseUrl, publicUrl, timeoutMs }, scan: { maxDepth: 3, maxNodes: 500, concurrency: 3 }, tls: {},
   });
 }
 
@@ -98,10 +107,10 @@ async function main() {
 
   const check = async (id, inputs) => (await call('POST', `/api/missions/${id}/check`, { inputs })).body;
   // A second trainer (own browser session) in front of another server.
-  const trainerFor = async (baseUrl) => {
-    const srv = http.createServer(appFor(baseUrl, dataDir).handle);
+  const trainerFor = async (baseUrl, opts = {}) => {
+    const srv = http.createServer(appFor(baseUrl, opts.dataDir || dataDir, opts).handle);
     extraServers.push(srv);
-    return browser(`http://127.0.0.1:${await listen(srv)}`);
+    return browser(`http://127.0.0.1:${await listen(srv)}`, opts);
   };
 
   console.log('CS Academy smoke test');
@@ -232,6 +241,59 @@ async function main() {
     assert.equal(scan.features.classifications.status, 'detected');
     assert.equal(scan.user.isSysAdmin, false);
     assert.ok(scan.notes.length >= 3);
+  });
+
+  await step('a Content Server call that never answers doesn\'t stop the scan: it is named and its area shows as unknown', async () => {
+    mock.state.slow = [/^\/api\/v2\/search$/, /^\/api\/v1\/nodes\/\d+\/addablenodetypes$/];
+    try {
+      const slow = await trainerFor(csBase, { timeoutMs: 400, dataDir: path.join(dataDir, 'slow') });
+      assert.equal((await slow('POST', '/api/login', { username: 'student', password: 'x' })).status, 200);
+      const r = await slow('POST', '/api/scan');
+      assert.equal(r.status, 200, JSON.stringify(r.body));
+      const s = r.body.scan;
+      assert.equal(s.features.search.status, 'unknown');
+      assert.match(s.features.search.evidence[0], /did not answer GET \/api\/v2\/search within/);
+      assert.ok(s.slowCalls.endpoints.includes('/api/v2/search'));
+      assert.ok(s.notes.some((n) => /took longer than/.test(n)));
+      assert.equal(s.categories.length, 3);
+      // Not being answered is never evidence that an area is missing.
+      for (const [key, f] of Object.entries(s.features)) {
+        if (scan.features[key].status === 'detected') assert.notEqual(f.status, 'not-detected', key);
+      }
+      assert.ok(Object.values(s.features).some((f) => f.status === 'unknown' && /which item types you may add/.test(f.evidence[0])));
+      // The Connection page shows the slow call on its row and still reports the rest.
+      const conn = await slow('GET', '/api/connection');
+      assert.equal(conn.status, 200, JSON.stringify(conn.body));
+      const row = conn.body.rows.find((x) => x.area === 'Search');
+      assert.equal(row.ok, false);
+      assert.equal(row.detail, 'Content Server did not answer GET /api/v2/search within 400 ms');
+      assert.ok(conn.body.rows.find((x) => x.area === 'Your groups').ok);
+
+      // Mission checks stay strict: there a timeout is an error, never a result.
+      mock.state.slow = [/^\/api\/v1\/volumes\/142$/];
+      const c = await slow('POST', '/api/missions/u01-sandbox/check', {});
+      assert.equal(c.status, 504);
+      assert.match(c.body.error, /did not answer GET \/api\/v1\/volumes\/142 within/);
+      assert.equal((await slow('GET', '/api/progress')).body.stats.xp, 0);
+    } finally {
+      mock.state.slow = [];
+    }
+  });
+
+  await step('another device gets Content Server links under the name it used to reach the trainer', async () => {
+    const device = `http://192.0.2.10:${mockPort}/otcs/cs.exe`;
+    const phone = browser(`http://127.0.0.1:${appPort}`, { host: '192.0.2.10:8420' });
+    assert.equal((await phone('GET', '/api/health')).body.csUrl, device);
+    const login = await phone('POST', '/api/login', { username: 'student', password: 'x' });
+    assert.equal(login.status, 200);
+    assert.equal(login.body.cs.url, device);
+    const m = await phone('GET', '/api/missions/u01-sandbox');
+    assert.equal(m.body.mission.links.smart, `${device}/app/nodes/${personal}`);
+    // This computer's browser keeps the configured address...
+    assert.equal((await call('GET', '/api/session')).body.cs.url, csBase);
+    // ...and a configured contentServer.publicUrl is used on every device.
+    const fixed = await trainerFor(csBase, { publicUrl: 'https://ecm.example.com/otcs/cs.exe', host: '192.0.2.10:8420' });
+    assert.equal((await fixed('GET', '/api/health')).body.csUrl, 'https://ecm.example.com/otcs/cs.exe');
   });
 
   await step('teacher proposes the first mission', async () => {

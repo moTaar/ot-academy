@@ -1,0 +1,73 @@
+# Does the trainer still pass its end-to-end test, and is the committed
+# Internet Explorer 11 build the one its sources produce?
+#
+# Runs on every pull request and every push to main. Each job is named for
+# what it proves; a branch-protection rule would refer to them by these names.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # package.json asks for Node >= 18 and the README recommends the current
+  # LTS, which is what servers running the trainer are told to install.
+  NODE_VERSION: "24"
+
+jobs:
+  smoke-test:
+    name: End-to-end test (mock Content Server)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      # The app has no runtime dependencies and the test needs none, so there
+      # is nothing to install: this is exactly how a server runs it.
+      # test/smoke.js starts the mock Content Server and the trainer on random
+      # local ports and plays the learner, checking every mission type.
+      - name: Run test/smoke.js
+        run: npm test
+
+  legacy-build:
+    name: IE11 build is current
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+
+      # public/legacy/ is committed because servers never run npm. Rebuilding
+      # proves the build still works (including its check that app.js avoids
+      # DOM APIs IE11 lacks), and that what is committed is what the current
+      # sources and build tools produce. The smoke test only compares a hash
+      # of the sources, so it misses a hand-edited output or a tool upgrade.
+      - name: Rebuild public/legacy
+        run: npm run build:legacy
+      - name: Committed build matches
+        run: |
+          if [ -n "$(git status --porcelain public/legacy)" ]; then
+            echo "::error::public/legacy/ is out of date. Run 'npm ci && npm run build:legacy' and commit the result."
+            git status --porcelain public/legacy
+            exit 1
+          fi

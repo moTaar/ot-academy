@@ -201,13 +201,13 @@ CERTS.push({
   domains: [
     { id: 'ws-concepts', title: 'How business workspaces work', weight: 15, modules: ['a06'], includes: ['ba-bw-fundamentals'],
       objectives: ['Explain what a business workspace is and why it exists.', 'Name the parts: workspace type, template, business object type, external system, roles, perspective.', 'Describe how a workspace is linked to a business object, and what works without an integration.', 'Tell business workspaces apart from folders, projects and communities.'] },
-    { id: 'ws-infra', title: 'Building blocks: categories, classifications and locations', weight: 20, modules: [], includes: ['ba-bw-infra'],
+    { id: 'ws-infra', title: 'Building blocks: categories, classifications and locations', weight: 20, modules: [], includes: ['ba-bw-infra', 'ba-facets'],
       objectives: ['Create the category that holds a workspace\'s business metadata.', 'Create classifications for templates and locations.', 'Choose and prepare the folder where workspaces are created.', 'Configure them in the right order, before the workspace type.'] },
     { id: 'ws-types', title: 'Workspace types and templates', weight: 25, modules: [], includes: ['ba-ws-types'],
       objectives: ['Configure a workspace type: name pattern, location, indexing, related settings.', 'Create a workspace template and link it to the type.', 'Build template content: folders, email folders, forums, replacement tags.', 'Plan template content for real teams.'] },
     { id: 'ws-roles', title: 'Roles, participants and permissions', weight: 15, modules: [], includes: ['ba-roles'],
       objectives: ['Define workspace roles in a template and what they grant.', 'Add and remove participants; understand group replacement.', 'Predict what happens to roles and permissions when a workspace moves.'] },
-    { id: 'ws-using', title: 'Creating and working in workspaces', weight: 25, modules: ['u18'], includes: ['ba-smart'],
+    { id: 'ws-using', title: 'Creating and working in workspaces', weight: 25, modules: ['u18'], includes: ['ba-smart', 'ba-search'],
       objectives: ['Create workspaces in Smart View, from a business application, and through the REST API.', 'Work in a workspace: header, perspective, widgets, team, related workspaces.', 'Use smart document types and required documents.', 'Troubleshoot creation problems and move a setup with Transport.'] },
   ],
 });

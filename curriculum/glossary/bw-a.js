@@ -1,0 +1,54 @@
+'use strict';
+// Glossary, business workspaces part A (course 2-0108 chapters 1, 2, 3 and 16).
+// Terms already defined in other glossary files are not repeated here.
+// Format: curriculum/CONTENT.md.
+
+module.exports = [
+  // ---- concepts and modules (Ch. 1, 3)
+  { term: 'Content in context', def: 'OpenText’s summary of the business workspace idea: business data, content, people and tasks about one business object brought together, so the data gives the content its meaning.', area: 'workspaces', guide: 'bw-intro-concepts' },
+  { term: 'Connected Workspaces', def: 'The name used before Content Server 21.4 for business workspaces whose content lives only in Content Server (no leading application). Since 21.4 all are simply called Business Workspaces.', area: 'workspaces', guide: 'bw-intro-concepts' },
+  { term: 'Leading application', def: 'The business system that owns a business object’s data — for example SAP, Salesforce, SuccessFactors or Oracle E-Business Suite. With Extended ECM it can create and populate workspaces.', area: 'workspaces', guide: 'bw-dependencies-modules' },
+  { term: 'Template Workspaces (module)', def: 'The module underneath Business Workspaces that lets designers build reusable workspace templates. It bundles Document Templates, Case Management components, Barcode, Calendar Attribute, Partner Database and Interview, and is enabled together with Business Workspaces.', area: 'workspaces', guide: 'bw-dependencies-modules' },
+  { term: 'Document Templates (module)', def: 'The part of Template Workspaces that stores templates and offers them to users according to classification and storage location — the basis of every new business workspace.', area: 'workspaces', guide: 'bw-dependencies-modules' },
+  { term: 'Case Management (module)', def: 'A component of Template Workspaces for case-like work where content, people, transactions and policies interact and the documents needed change by stage. One of the dependencies of Business Workspaces.', area: 'workspaces', guide: 'bw-dependencies-modules' },
+  { term: 'Extended ECM Platform', def: 'The OpenText product that integrates Content Server with leading business applications (CRM, ERP, HR, finance), adding the business context to content — summed up as content, context and value.', area: 'workspaces', guide: 'bw-dependencies-modules' },
+  { term: 'Enable Business Workspaces', def: 'The admin page link that switches on Business Workspaces and Template Workspaces. It needs a license for both, is followed by a Content Server restart, and cannot be reversed.', area: 'workspaces', guide: 'bw-dependencies-modules' },
+  { term: 'Configuration areas (business workspaces)', def: 'The three groups of setup work: identify business processes (root folder, classification), refine metadata and events (category, custom columns, activity manager) and build workspaces (type, template, roles, perspective, search).', area: 'workspaces', guide: 'bw-dependencies-modules' },
+
+  // ---- administration page and volume (Ch. 3)
+  { term: 'Business Workspaces volume', def: 'The configuration area reached from Enterprise ▸ Business Workspaces. It holds or links to Categories, Classifications, Facets, Outlook Add-in Configuration, Perspectives, the Saved Queries Volume, Variables for Replacement Tags and Workspace Types. Templates are not in it.', area: 'workspaces', guide: 'bw-admin-page-volume' },
+  { term: 'Business Workspaces administration page', def: 'The section of the Content Server admin pages with Enable Business Workspaces, Configure Business Workspaces, Import Configuration, Migration Administration and Set up Outlook Add-in.', area: 'workspaces', guide: 'bw-admin-page-volume' },
+  { term: 'Import Configuration (Business Workspaces)', def: 'Admin page function that imports workspace types, business object types and unique names from a configuration file.', area: 'workspaces', guide: 'bw-admin-page-volume' },
+  { term: 'Migration Administration', def: 'Admin page function that manages the migration of older binders and cases into business workspaces.', area: 'workspaces', guide: 'bw-admin-page-volume' },
+  { term: 'Saved Queries Volume', def: 'Item of the Business Workspaces volume that holds simple, predefined searches helping users find business workspaces quickly.', area: 'workspaces', guide: 'bw-admin-page-volume' },
+  { term: 'Variables for Replacement Tags', def: 'Item of the Business Workspaces volume where designers define variables used for group replacement, to restrict access to a new workspace or parts of it.', area: 'workspaces', guide: 'bw-admin-page-volume' },
+  { term: 'Outlook add-in (Business Workspaces)', def: 'An add-in for Microsoft Exchange / Exchange Online that lets users save Outlook emails into business workspaces. Its manifest comes from the admin page; its filing rules (any folder, or a forced folder or Email folder) from Outlook Add-in Configuration.', area: 'workspaces', guide: 'bw-admin-page-volume' },
+
+  // ---- rights (Ch. 3, 16)
+  { term: 'Business Administrators group', def: 'A group created when Content Server is installed that holds the Business Administration usage privileges and can open the Business Workspaces volume. It still needs permissions on configuration volumes and some object privileges.', area: 'workspaces', guide: 'bw-rights' },
+  { term: 'Business Administration – Business Workspaces', def: 'Usage privilege that allows configuring workspace types, roles and teams, saved queries, replacement-tag variables and the Outlook add-in.', area: 'workspaces', guide: 'bw-rights' },
+  { term: 'Move Business Workspaces (privilege)', def: 'Usage privilege “Business Workspaces – Move Business Workspaces”: only users who hold it can move a business workspace to another folder.', area: 'workspaces', guide: 'bw-rights' },
+  { term: 'Edit attributes relevant for group mapping', def: 'Usage privilege that restricts who may change attributes used for group replacement — attributes that decide which generated groups get access to a workspace.', area: 'workspaces', guide: 'bw-rights' },
+  { term: 'Regenerate Reference (privilege)', def: 'Usage privilege “Business Workspaces – Regenerate Reference” that lets a user generate a new reference number for a workspace, for example after attributes used in the reference changed.', area: 'workspaces', guide: 'bw-rights' },
+  { term: 'ActiveView – Perspectives Tab', def: 'Usage privilege that gives access to the Perspective Manager and, together with the ActiveView object privilege and Modify on the perspective, to Edit Page in Smart View.', area: 'workspaces', guide: 'bw-rights' },
+  { term: 'Edit Restrictions', def: 'The button on the Object Privileges and Usage Privileges admin pages that opens the list of users and groups holding a restricted privilege, where groups are added with “Add to group”.', area: 'workspaces', guide: 'bw-rights' },
+
+  // ---- Smart View (Ch. 1, 2, 16)
+  { term: 'Tile', def: 'A box on a Smart View page that displays one widget — for example the Team tile (participants and roles), the Metadata tile (category attributes) or the Header tile (name, type, image, key data).', area: 'workspaces', guide: 'bw-terminology' },
+  { term: 'Layout (perspective)', def: 'The part of a perspective that sets the number of tabs, which widgets appear and where; the rules decide when the perspective is used.', area: 'workspaces', guide: 'bw-terminology' },
+  { term: 'ActiveView override', def: 'An ActiveView setting that changes how a Content Server component appears in Classic View — as opposed to an ActiveView perspective, which changes Smart View.', area: 'workspaces', guide: 'bw-terminology' },
+  { term: 'Team tile', def: 'Smart View tile listing a workspace’s participants and roles. Expanded, it shows Participants and Roles tabs, profiles, role details (including the team lead), Add participants and CSV export.', area: 'workspaces', guide: 'bw-navigate-smart-view' },
+  { term: 'Metadata tile', def: 'Smart View tile showing the workspace category attributes; users with Edit Attributes can change values inline by clicking a field and pressing Enter.', area: 'workspaces', guide: 'bw-navigate-smart-view' },
+  { term: 'Discussion tile', def: 'Smart View tile showing the latest questions and replies of the workspace forum, with Reply, Ask a question, Follow and search.', area: 'workspaces', guide: 'bw-navigate-smart-view' },
+  { term: 'Simple User Profile', def: 'A Smart View setting (Configure Smart View ▸ User Profile in Smart View) that gives users a lighter profile without Following, Followers and Activity tabs and adds the Business Workspace navigation tree option to their settings.', area: 'workspaces', guide: 'bw-navigate-smart-view' },
+  { term: 'Navigation tree (workspaces)', def: 'An optional panel on a workspace’s Documents tab that shows the whole folder structure. Users switch it on in their profile settings once the Simple User Profile is enabled.', area: 'workspaces', guide: 'bw-navigate-smart-view' },
+  { term: 'Workspaces widget', def: 'Smart View widget that lists business workspaces of one workspace type (a required setting); its default title is “My workspaces”.', area: 'workspaces', guide: 'bw-using-smart-view' },
+  { term: 'Insights (workspace)', def: 'A per-workspace switch in the Smart View header that subscribes the user to the workspace’s events, which then arrive in the Notification Center.', area: 'workspaces', guide: 'bw-using-smart-view' },
+  { term: 'Content Server Document Templates tile', def: 'A Smart View tile that shows the Document Templates volume so designers can view, edit and create templates where it is configured.', area: 'workspaces', guide: 'bw-using-smart-view' },
+  { term: 'Edit Page', def: 'Smart View Profile menu command that edits the perspective of the current container or landing page. Needs the Perspectives Tab usage privilege, the ActiveView object privilege and Modify on the perspective; it cannot edit Business Workspaces widgets.', area: 'workspaces', guide: 'bw-editing' },
+
+  // ---- Classic View (Ch. 2, 16)
+  { term: 'Sidebar widget', def: 'A panel shown on the right of a business workspace in Classic View (Attributes, Recent Changes, Work Items, WS Reference). Configured on the workspace type and reused by matching Smart View widgets.', area: 'workspaces', guide: 'bw-navigate-classic' },
+  { term: 'WS Reference', def: 'Classic View sidebar widget showing a workspace reference — a reference number held in a category attribute that points to the business object (with Extended ECM, a link to it).', area: 'workspaces', guide: 'bw-navigate-classic' },
+  { term: 'Business Workspaces menu', def: 'Classic View Global Menu Bar menu with Search, Recent and Favorites for reaching business workspaces without browsing.', area: 'workspaces', guide: 'bw-navigate-classic' },
+];

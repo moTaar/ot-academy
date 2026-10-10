@@ -10,7 +10,7 @@ const SRC = 'OpenText Extended ECM business workspace documentation; course 2-01
 module.exports = [
   // ------------------------------------------------------------------ WS01
   {
-    id: 'ws01', track: 'workspaces', title: 'How business workspaces work', source: SRC, feature: 'businessWorkspaces',
+    id: 'ws01', track: 'workspaces', order: 30, title: 'How business workspaces work', source: SRC, feature: 'businessWorkspaces',
     domains: ['ws-concepts'],
     summary: 'What a business workspace is made of, how one is born, and what your server already has.',
     lesson: [
@@ -52,7 +52,7 @@ module.exports = [
         id: 'ws01-explore', type: 'investigate', title: 'Count the workspace types on your server', xp: 20,
         brief: 'Before building anything, see what the server already has. Every kind of business workspace is a workspace type.',
         steps: [
-          'Open the business workspace administration (Administration ▸ Business Workspaces, or Connected Workspaces in some releases) ▸ Workspace Types — or ask your administrator.',
+          'Open Enterprise ▸ Business Workspaces ▸ Workspace Types (the Business Workspaces volume) — or ask your administrator.',
           'Count the workspace types listed.',
           'Type the number below.',
         ],
@@ -75,7 +75,7 @@ module.exports = [
         id: 'ws01-quiz', type: 'quiz', title: 'Knowledge check: how workspaces work', xp: 25,
         questions: [
           { q: 'Which configuration object decides the name of a new business workspace?', options: ['The template', 'The workspace type\'s name pattern', 'The perspective', 'The classification'], answer: 1, explain: 'The workspace type holds the name pattern, built from category attributes or business object properties.' },
-          { q: 'Users can\'t see a workspace type in the Add menu of the Customers folder. What links a folder to the templates offered there?', options: ['Matching classifications on the folder and the template', 'The folder\'s category', 'The perspective rule', 'The Recycle Bin settings'], answer: 0, explain: 'Templates are offered where their classification matches the folder\'s.' },
+          { q: 'Users can\'t see the Customer template in the Add menu of the Customers folder. What links a folder to the templates offered there?', options: ['Matching classifications on the folder and the template', 'The folder\'s category', 'The perspective rule', 'The Recycle Bin settings'], answer: 0, explain: 'Templates are offered where their classification matches the folder\'s.' },
           { q: 'An administrator adds a folder to a workspace template. What happens to the 300 workspaces created from it last year?', options: ['They get the folder overnight', 'Nothing — templates are copied only at creation', 'They are recreated', 'They become read-only'], answer: 1, explain: 'A template is a master copy used at creation; existing workspaces need a separate bulk change.' },
           { q: 'What is a “late” business workspace?', options: ['One created after its business object exists, from that object', 'One created after office hours', 'One whose template is outdated', 'One that was moved'], answer: 0, explain: 'Late workspaces come from an existing business object; early ones are created first and linked later.' },
           { q: 'Where do the folders, roles and default categories of a new workspace come from?', options: ['The workspace type', 'The template', 'The location folder', 'OTDS'], answer: 1, explain: 'The template is copied: content, roles, permissions and categories.' },
@@ -87,7 +87,7 @@ module.exports = [
 
   // ------------------------------------------------------------------ WS02
   {
-    id: 'ws02', track: 'workspaces', title: 'Lab 1 — Build the building blocks', source: SRC, feature: 'businessWorkspaces',
+    id: 'ws02', track: 'workspaces', order: 31, title: 'Lab 1 — Build the building blocks', source: SRC, feature: 'businessWorkspaces',
     domains: ['ws-infra'],
     summary: 'Create the category, classification and location folder a workspace type depends on.',
     lesson: [
@@ -175,7 +175,7 @@ module.exports = [
 
   // ------------------------------------------------------------------ WS03
   {
-    id: 'ws03', track: 'workspaces', title: 'Lab 2 — Workspace type, template and roles', source: SRC, feature: 'businessWorkspaces',
+    id: 'ws03', track: 'workspaces', order: 32, title: 'Lab 2 — Workspace type, template and roles', source: SRC, feature: 'businessWorkspaces',
     domains: ['ws-types', 'ws-roles'],
     summary: 'Configure the Training Customer workspace type and its template, content and roles.',
     lesson: [
@@ -196,7 +196,7 @@ module.exports = [
       },
       {
         steps: [
-          'Administration ▸ Business Workspaces (or Connected Workspaces) ▸ Workspace Types ▸ Add: name **Training Customer**, an icon.',
+          'Enterprise ▸ Business Workspaces ▸ Workspace Types ▸ Add Item ▸ Workspace Type: name **Training Customer**, an icon.',
           'Name pattern: Customer Number – Customer Name (from the Training Customer category).',
           'Location: your sandbox folder “Training Customers”.',
           'Save.',
@@ -279,7 +279,7 @@ module.exports = [
 
   // ------------------------------------------------------------------ WS04
   {
-    id: 'ws04', track: 'workspaces', title: 'Lab 3 — Create and work in a workspace', source: SRC, feature: 'businessWorkspaces',
+    id: 'ws04', track: 'workspaces', order: 33, title: 'Lab 3 — Create and work in a workspace', source: SRC, feature: 'businessWorkspaces',
     domains: ['ws-using'],
     summary: 'Create a Training Customer workspace, check what the template gave it, and work in it.',
     lesson: [
@@ -287,7 +287,7 @@ module.exports = [
       {
         steps: [
           'Open your sandbox ▸ “Training Customers” in Smart View.',
-          'Click + (Add) ▸ Training Customer; choose “Training Customer – Standard”.',
+          'Click + (Add) ▸ “Training Customer – Standard” (the Add menu lists templates by name), or use the Create Business Workspace icon next to Favorites.',
           'Enter Customer Number 10023, Customer Name ACME Corp, Region EMEA.',
           'Create. The workspace is named by the pattern: “10023 – ACME Corp”.',
         ],
@@ -310,7 +310,7 @@ module.exports = [
         },
         caption: 'What the trainer will look for.',
       },
-      { callout: 'tip', text: ['No “Training Customer” in the + menu? Check that the folder and the template share the classification — the most common setup mistake ([[ws-troubleshooting]]).'] },
+      { callout: 'tip', text: ['No “Training Customer – Standard” in the + menu? Check that the folder and the template share the classification, and that creation is enabled on the workspace type — the most common setup mistakes ([[ws-troubleshooting]]).'] },
       'Every way of creating workspaces, including from business applications and the REST API: [[ws-create]]. Working in a workspace: [[ws-working-in]].',
     ],
     keyPoints: [
@@ -325,7 +325,7 @@ module.exports = [
         brief: 'The real test of your setup: a business workspace created from your type and template, in your location.',
         steps: [
           'Open “Training Customers” in your sandbox in Smart View.',
-          '+ (Add) ▸ Training Customer ▸ template “Training Customer – Standard”.',
+          '+ (Add) ▸ “Training Customer – Standard”.',
           'Customer Number 10023, Customer Name ACME Corp, Region EMEA. Create.',
         ],
         hints: ['If your server has no business workspaces module, this mission can\'t be done there — skip it.', 'The workspace must be directly inside “Training Customers”. If your type has an attribute-based sub-path, remove it for this lab.'],
@@ -359,7 +359,7 @@ module.exports = [
         questions: [
           { q: 'A user creates a workspace in the Customers ▸ EMEA folder in Smart View. Where is it created?', options: ['In Customers ▸ EMEA', 'Always in the type\'s location root', 'In the user\'s Personal Workspace', 'In the Document Templates volume'], answer: 0, explain: 'Created in a folder, the workspace lands in that folder; the type\'s location is for creation without a chosen folder.' },
           { q: 'Workspaces created from SAP appear in the wrong folder. What do you check first?', options: ['The workspace type\'s location and sub-path attributes', 'The perspective', 'The Recycle Bin', 'The user\'s favorites'], answer: 0, explain: 'Without a chosen folder, the type\'s location decides.' },
-          { q: 'Why might the + menu not offer your workspace type in a folder? (Pick the best answer.)', options: ['No template with a classification matching the folder', 'The folder has too many items', 'The workspace type has no icon', 'The perspective is missing'], answer: 0, explain: 'Classification matching is what offers a template — and its type — in a folder.' },
+          { q: 'Why might the + menu not offer your template in a folder? (Pick the best answer.)', options: ['No template with a classification matching the folder', 'The folder has too many items', 'The workspace type has no icon', 'The perspective is missing'], answer: 0, explain: 'Classification matching is what offers a template — and its type — in a folder.' },
           { q: 'What gives a new participant access to a workspace\'s documents?', options: ['The permissions of the role they are added to', 'Being named in the workspace title', 'Opening it from a favorite', 'The category'], answer: 0, explain: 'Roles carry the permissions.' },
           { q: 'Through the REST API, what do you ask for before creating a workspace with required metadata?', options: ['The create form for the template', 'A LiveReport', 'The audit log', 'The Recycle Bin'], answer: 0, explain: 'The create form lists the fields the template needs.' },
           { q: 'The workspace name came out as “ – ACME Corp”. Likely cause?', options: ['Customer Number was empty but used in the name pattern', 'The template had no folders', 'The perspective rule failed', 'The user lacks See'], answer: 0, explain: 'An empty attribute in the pattern leaves a blank part.' },
@@ -370,7 +370,7 @@ module.exports = [
 
   // ------------------------------------------------------------------ WS05
   {
-    id: 'ws05', track: 'workspaces', title: 'Lab 4 — Troubleshoot and transport', source: SRC, feature: 'businessWorkspaces',
+    id: 'ws05', track: 'workspaces', order: 34, title: 'Lab 4 — Troubleshoot and transport', source: SRC, feature: 'businessWorkspaces',
     domains: ['ws-using', 'ws-types'],
     summary: 'Diagnose broken workspace creation, and move a finished setup to another environment.',
     lesson: [
@@ -379,7 +379,7 @@ module.exports = [
         table: {
           head: ['Symptom', 'Look at'],
           rows: [
-            ['Type missing from + menu', 'Classifications of folder and template'],
+            ['Template missing from + menu', 'Classifications of folder and template; creation enabled on the type'],
             ['Blank or duplicate names', 'Name pattern, mandatory attributes, unique key'],
             ['Wrong folder', 'Type location and sub-path attributes'],
             ['No folders in the workspace', 'Template content; which template was used'],

@@ -42,7 +42,7 @@ module.exports = [
         table: {
           head: ['Part', 'Where it lives', 'What it decides'],
           rows: [
-            ['**Workspace type**', 'Business Workspaces (Connected Workspaces) administration', 'The kind of workspace: name pattern, default location, icon, indexing, related types, and — when connected — the business object type it represents'],
+            ['**Workspace type**', 'Business Workspaces volume (Enterprise ▸ Business Workspaces ▸ Workspace Types)', 'The kind of workspace: name pattern, default location, icon, indexing, related types, and — when connected — the business object type it represents'],
             ['**Workspace template**', 'Document Templates volume', 'What each new workspace contains: folders, categories with defaults, roles and permissions, standard documents'],
             ['**Category**', 'Categories volume', 'The business data (customer number, region, status…) that feeds the name, the location path, the header and search'],
             ['**Classification**', 'Classifications volume', 'Templates are offered where their classification matches the folder\'s — the link between “here” and “which templates”'],
@@ -149,7 +149,7 @@ module.exports = [
       {
         ul: [
           'Work on a **development or training system**, never directly in production — finished configuration moves on with [[ba-transport-deploy|Transport]].',
-          'You need business administration access: the Business Workspaces (Connected Workspaces) administration pages, Add Items on the Categories, Classifications and Document Templates volumes, and Perspective Manager.',
+          'You need business administration access: permissions on the Business Workspaces, Categories, Classifications, Facets and Document Templates volumes, the object privileges for the item types you create (workspace type, template, category…), and the usage privilege for Perspective Manager.',
           'Agree the design first: the business object, its metadata, the folder structure and the team roles (see [[an-workspace-design]]).',
         ],
       },
@@ -203,8 +203,8 @@ module.exports = [
       { h: '4. Create the workspace type' },
       {
         steps: [
-          'Open the business workspace administration: Administration ▸ Business Workspaces (Connected Workspaces in some releases) ▸ Workspace Types.',
-          'Add a workspace type “Customer”; choose an icon.',
+          'Open Enterprise ▸ Business Workspaces ▸ Workspace Types (the Business Workspaces volume; some older releases kept this in the Administration pages).',
+          'Add Item ▸ Workspace Type. Name it “Customer”; choose an icon.',
           'Set the **name pattern** from the category attributes, e.g. Customer Number – Customer Name.',
           'Set the **location**: the Customers folder, optionally with an attribute-based sub-path (Region).',
           'Decide the **indexing** option for child items if users must find documents by workspace data.',
@@ -288,8 +288,8 @@ module.exports = [
       {
         steps: [
           'Open the folder where workspaces of this kind live (e.g. Customers) — or a page with a workspaces widget for that type.',
-          'Click **+** (Add) and choose the workspace type, e.g. Customer. (Only types whose templates are offered here appear.)',
-          'Choose a template if there are several, e.g. “Customer – Standard”.',
+          'Click **+** (Add) and choose the **template**, e.g. “Customer – Standard” — the Add menu lists templates by name. Or use the **Create Business Workspace** icon at the top right, next to Favorites.',
+          'Only templates whose classification matches this folder are offered, and only for workspace types whose creation is enabled.',
           'Fill in the metadata: required attributes are marked; values in lists come from the category.',
           'Create. The workspace opens in its perspective with the template\'s folders, roles and you in the team.',
         ],
@@ -300,12 +300,12 @@ module.exports = [
         figure: {
           type: 'menu',
           title: '+ Add',
-          items: ['Folder', 'Document', 'Customer', 'Project', 'Shortcut', 'URL'],
-          highlight: 'Customer',
-          note: 'Workspace types appear in the Add menu of folders where a matching template is offered — that is what the classification on the folder is for.',
+          items: ['Folder', 'Document', 'Customer – Standard', 'Customer – Key account', 'Shortcut', 'URL'],
+          highlight: 'Customer – Standard',
+          note: 'Workspace templates appear by name in the Add menu of folders whose classification matches theirs. That is what the classification on the location folder is for.',
         },
       },
-      { callout: 'warn', text: ['Not offered? The folder and the template don\'t share a classification, you lack Add Items in the folder, or you lack the privilege to create business workspaces. See [[ws-troubleshooting]].'] },
+      { callout: 'warn', text: ['Not offered? The folder and the template don\'t share a classification, the workspace type\'s creation is disabled, you lack Add Items in the folder, or you lack the privilege to create business workspaces. See [[ws-troubleshooting]].'] },
       { h: 'From the leading application' },
       'With Extended ECM for SAP, Salesforce, SuccessFactors and similar, the workspace is usually created **from the business object**: automatically when the object is created or changed, or the first time a user opens the workspace from the record. Its metadata is filled from the object\'s properties through the business object type mapping, and the workspace stays linked to the record — the business user sees the same documents in the business application\'s UI and in Content Server.',
       {
@@ -434,7 +434,8 @@ module.exports = [
         table: {
           head: ['Symptom', 'Most likely cause', 'Check'],
           rows: [
-            ['The workspace type isn\'t in the + Add menu of a folder', 'No template whose classification matches the folder', 'Classifications of the folder and of the template'],
+            ['The template isn\'t in the + Add menu of a folder', 'No template whose classification matches the folder', 'Classifications of the folder and of the template'],
+            ['No template offered anywhere for one type', 'Creation is disabled on the workspace type', 'Workspace Types list: Creation Status; Functions ▸ Enable Creation'],
             ['Type offered, but no template to choose', 'Template not linked to the type, or not classified', 'Template properties: type and classification'],
             ['“You cannot create…” / no Add menu at all', 'Missing Add Items permission or create privilege', 'Folder permissions; object privileges for business workspaces'],
             ['Name is blank or “ – ”', 'Name pattern uses attributes that were left empty', 'Name pattern; make those attributes mandatory'],

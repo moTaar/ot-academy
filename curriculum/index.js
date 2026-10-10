@@ -21,15 +21,16 @@ const TRACKS = [
 ];
 
 // Track files, in display order. Files that don't exist yet are skipped.
-const TRACK_FILES = ['track-user', 'track-user-plus', 'track-collab', 'track-admin', 'track-bizadmin', 'track-sysadmin', 'track-dev', 'track-analyst', 'track-workspaces'];
+const TRACK_FILES = ['track-user', 'track-user-plus', 'track-collab', 'track-admin', 'track-bizadmin', 'track-sysadmin', 'track-dev', 'track-analyst', 'track-bw-a', 'track-bw-b', 'track-bw-c', 'track-workspaces'];
 const BASE_TRACKS = ['track-user', 'track-collab', 'track-admin'];
 const MODULES = [];
 for (const f of TRACK_FILES) {
   if (content.ONLY && !BASE_TRACKS.includes(f) && !content.ONLY.includes(`${f}.js`)) continue;
   if (fs.existsSync(path.join(__dirname, `${f}.js`))) MODULES.push(...require(`./${f}`));
 }
-// Keep each track's modules together, in file order.
-MODULES.sort((a, b) => TRACKS.findIndex((t) => t.id === a.track) - TRACKS.findIndex((t) => t.id === b.track));
+// Keep each track's modules together, in file order — or by `order` when
+// modules set it (several files feed one track).
+MODULES.sort((a, b) => (TRACKS.findIndex((t) => t.id === a.track) - TRACKS.findIndex((t) => t.id === b.track)) || ((a.order || 0) - (b.order || 0)));
 
 const TYPE_XP = { 'hands-on': 30, investigate: 20, quiz: 20, practice: 15 };
 const REF_ROOTS = new Set(['personal', 'enterprise', 'categoriesVolume']);

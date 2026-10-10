@@ -128,7 +128,7 @@ module.exports = [
         '**Classifications volume** — classification trees, including the trees used for templates and for document types.',
         '**Document Templates volume** — workspace templates and other document templates.',
         '**Perspectives volume** — global perspectives created with Perspective Manager.',
-        '**Business workspace configuration area** — workspace types, smart document types and, for connected systems, business object types and external systems (Business Workspaces / Connected Workspaces in the Administration pages, depending on the release).',
+        '**Business Workspaces volume** (Enterprise ▸ Business Workspaces) — workspace types and the other workspace configuration (categories, classifications, facets, perspectives, saved queries, replacement-tag variables). The Business Workspaces section of the Administration pages holds the module settings and, for connected systems, business object types and external systems (also labelled Connected Workspaces in some releases).',
         '**Enterprise workspace** — where root folders for workspaces normally live.',
       ] },
       { h: 'Permissions versus privileges for business workspaces' },
@@ -316,7 +316,7 @@ module.exports = [
     sources: [BW, BA, EXAM],
     body: [
       'A **workspace type** answers the question “what kind of business thing is this?” and holds the rules that every workspace of that kind follows: how it is named, where it is stored, which icon it shows, how its data is indexed and, for Extended ECM with a connected application, which business object type it represents. Templates belong to a type; perspectives and smart document types are usually targeted by type.',
-      { path: ['Administration', 'Business Workspaces (Connected Workspaces in some releases)', 'Workspace Types'], ui: 'Classic View' },
+      { path: ['Enterprise', 'Business Workspaces', 'Workspace Types', 'Add Item', 'Workspace Type'], ui: 'Classic View' },
       { h: 'Settings of a workspace type' },
       { table: { head: ['Setting', 'What it controls', 'Example'], rows: [
         ['Name and icon', 'How the type appears in lists and on workspaces', '“Customer”, a building icon'],

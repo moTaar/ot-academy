@@ -590,6 +590,106 @@ async function main() {
     assert.equal(again.status, 410);
   });
 
+  // The right answer(s) for a question as the browser shows it (shuffled options).
+  const rightAnswer = (qq) => {
+    const orig = [...curriculum.questionById.values()].find((b) => b.q === qq.q && b.options.length === qq.options.length && b.options.every((o) => qq.options.includes(o)));
+    assert.ok(orig, `question not found: ${qq.q}`);
+    const idx = (a) => qq.options.indexOf(orig.options[a]);
+    return Array.isArray(orig.answer) ? orig.answer.map(idx) : idx(orig.answer);
+  };
+
+  await step('certification simulation: real length, time limit and pass mark; no answers sent', async () => {
+    const cert = curriculum.CERTS.find((c) => c.id === '5-0158');
+    const e = await call('GET', '/api/exam/new?cert=5-0158');
+    assert.equal(e.status, 200);
+    assert.equal(e.body.mode, 'sim');
+    assert.equal(e.body.minutes, cert.exam.minutes);
+    assert.equal(e.body.pass, cert.exam.pass);
+    const pool = new Set(cert.domains.flatMap((d) => curriculum.domainPool.get(d.id)));
+    assert.equal(e.body.questions.length, Math.min(cert.exam.questions, pool.size));
+    assert.ok(e.body.questions.every((qq) => qq.domain && cert.domains.some((d) => d.id === qq.domain)));
+    const text = JSON.stringify(e.body);
+    assert.equal(text.includes('"answer"') || text.includes('"explain"'), false);
+    const r = await call('POST', '/api/exam/submit', { examId: e.body.examId, answers: e.body.questions.map(rightAnswer) });
+    assert.equal(r.body.record.correct, e.body.questions.length);
+    assert.equal(r.body.record.passed, true);
+    assert.equal(Object.values(r.body.record.byDomain).reduce((a, d) => a + d.total, 0), e.body.questions.length);
+    const p = await call('GET', '/api/paths/5-0158');
+    assert.ok(p.body.path.readiness > 0);
+    assert.equal(p.body.path.sims, 1);
+    assert.equal(p.body.path.bestSim, 100);
+  });
+
+  await step('domain drill only asks about that domain; a wrong answer counts as wrong', async () => {
+    const e = await call('GET', '/api/exam/new?cert=5-0158&domain=bu-permissions&count=5');
+    assert.equal(e.body.mode, 'drill');
+    assert.ok(e.body.questions.length > 0 && e.body.questions.length <= 5);
+    assert.ok(e.body.questions.every((qq) => qq.domain === 'bu-permissions'));
+    const answers = e.body.questions.map(rightAnswer);
+    answers[0] = Array.isArray(answers[0]) ? [answers[0][0]] : (answers[0] + 1) % e.body.questions[0].options.length;
+    const r = await call('POST', '/api/exam/submit', { examId: e.body.examId, answers });
+    assert.equal(r.body.record.correct, e.body.questions.length - 1);
+    assert.equal(r.body.review[0].correct, false);
+    assert.equal((await call('GET', '/api/exam/new?cert=5-0158&domain=ba-transport')).status, 400);
+    assert.equal((await call('GET', '/api/exam/new?cert=nope')).status, 404);
+  });
+
+  await step('multiple-response questions need exactly the right set of answers', async () => {
+    const learning = require('../lib/learning');
+    const cur = {
+      questionById: new Map([['x', { q: 'Which two? (Choose two.)', options: ['a', 'b', 'c', 'd'], answer: [0, 2], explain: 'e' }]]),
+      domainById: new Map(), guideById: new Map(),
+    };
+    const p = { qid: 'x', domain: null, order: [2, 0, 3, 1] }; // a and c are shown at 1 and 0
+    assert.equal(learning.gradeQuestion(cur, p, [1, 0]).correct, true);
+    assert.equal(learning.gradeQuestion(cur, p, [0]).correct, false);
+    assert.equal(learning.gradeQuestion(cur, p, [0, 1, 2]).correct, false);
+    assert.equal(learning.gradeQuestion(cur, p, null).correct, false);
+    assert.deepEqual(learning.gradeQuestion(cur, p, [1, 0]).answer, [0, 1]);
+    // Domain shares add up to the exam length and follow the weights.
+    for (const cert of curriculum.CERTS) {
+      const a = learning.apportion(cert.domains, cert.exam.questions);
+      assert.equal(a.reduce((s, x) => s + x.n, 0), cert.exam.questions);
+    }
+  });
+
+  await step('handbook: guides, reading progress, glossary and search', async () => {
+    const list = await call('GET', '/api/guides');
+    assert.ok(list.body.guides.length >= 1);
+    const id = list.body.guides[0].id;
+    const g = await call('GET', `/api/guides/${id}`);
+    assert.ok(Array.isArray(g.body.guide.body) && g.body.guide.body.length);
+    assert.equal(g.body.guide.read, false);
+    assert.equal((await call('POST', `/api/guides/${id}/read`, {})).body.read, true);
+    assert.equal((await call('GET', `/api/guides/${id}`)).body.guide.read, true);
+    assert.equal((await call('POST', `/api/guides/${id}/read`, { read: false })).body.read, false);
+    assert.equal((await call('GET', '/api/guides/no-such-guide')).status, 404);
+    assert.ok(Array.isArray((await call('GET', '/api/glossary')).body.terms));
+    const s = await call('GET', `/api/search?q=${encodeURIComponent(list.body.guides[0].title)}`);
+    assert.equal(s.body.results[0].id, id);
+    assert.deepEqual((await call('GET', '/api/search?q=')).body.results, []);
+    const paths = await call('GET', '/api/paths');
+    assert.deepEqual(paths.body.paths.map((x) => x.id).sort(), curriculum.CERTS.map((c) => c.id).sort());
+    assert.equal((await call('POST', '/api/paths/5-0159/focus', {})).body.focus, '5-0159');
+  });
+
+  await step('practice paths follow the learner\'s missions in their Content Server', async () => {
+    const list = await call('GET', '/api/practice');
+    assert.deepEqual(list.body.paths.map((p) => p.id), curriculum.PRACTICE.map((p) => p.id));
+    const p = await call('GET', '/api/practice/sandbox');
+    const first = p.body.path.stages[0].missions[0];
+    assert.equal(first.id, 'u01-sandbox');
+    assert.equal(first.status, 'done');
+    assert.ok(p.body.path.done >= 1 && p.body.path.done < p.body.path.total);
+    assert.ok(p.body.path.next && p.body.path.next.id !== 'u01-sandbox');
+    assert.equal((await call('GET', '/api/practice/nope')).status, 404);
+    // The workspaces skill path draws on the 5-0159 domains it includes.
+    const ws = curriculum.CERTS.find((c) => c.id === 'workspaces');
+    for (const d of ws.domains) for (const x of d.includes || []) {
+      for (const qid of curriculum.domainPool.get(x).filter((id) => id.startsWith('bank:'))) assert.ok(curriculum.domainPool.get(d.id).includes(qid));
+    }
+  });
+
   await step('progress is stored per Content Server', async () => {
     const file = path.join(dataDir, 'progress', serverKey(csBase), `${student.id}.json`);
     const saved = JSON.parse(fs.readFileSync(file, 'utf8'));

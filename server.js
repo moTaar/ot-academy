@@ -24,6 +24,7 @@ const { verifyMission } = require('./lib/verifier');
 const { diagnose } = require('./lib/diagnostics');
 const { Store } = require('./lib/store');
 const curriculum = require('./curriculum');
+const learning = require('./lib/learning');
 
 const LEVELS = [
   { name: 'Novice', xp: 0 },
@@ -33,7 +34,7 @@ const LEVELS = [
   { name: 'Expert', xp: 1700 },
   { name: 'Master', xp: 2400 },
 ];
-const TRACK_ORDER = ['user', 'collab', 'admin'];
+const TRACK_ORDER = curriculum.TRACKS.map((t) => t.id);
 const QUIZ_PASS_RATIO = 0.6;
 
 // ---------------------------------------------------------------- config
@@ -123,14 +124,7 @@ function levelFor(xp) {
   return { name: LEVELS[idx].name, index: idx, xp, floor: LEVELS[idx].xp, next: next ? { name: next.name, xp: next.xp } : null };
 }
 
-function shuffle(a) {
-  const arr = a.slice();
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = crypto.randomInt(i + 1);
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr;
-}
+const { shuffle } = learning;
 
 const isResolved = (st) => st && (st.status === 'done' || st.status === 'skipped');
 const isDone = (st) => st && st.status === 'done';
@@ -339,7 +333,7 @@ function createApp(config) {
   }
 
   route('GET', /^\/api\/health$/, async ({ req }) => ({
-    ok: true, csUrl: publicUrlFor(req), sandboxName: config.sandboxName, missions: curriculum.missionById.size, cs: await client.probe(),
+    ok: true, csUrl: publicUrlFor(req), sandboxName: config.sandboxName, missions: curriculum.missionById.size, tracks: curriculum.TRACKS.length, guides: curriculum.guides.length, cs: await client.probe(),
   }), { auth: false });
 
   route('POST', /^\/api\/login$/, async ({ req, body, res }) => {
@@ -542,19 +536,43 @@ function createApp(config) {
     return { mission: missionView(m, session, progress), stats: stats(progress) };
   }, { save: true });
 
+  // Practice exams. Three kinds:
+  //   ?track=user&count=20        knowledge-check questions of a track (or all)
+  //   ?cert=5-0158                certification simulation: the real exam's
+  //                               question count, time limit and pass mark,
+  //                               domains weighted as in the exam outline
+  //   ?cert=5-0158&mode=quick     the same mix, fewer questions, no timer
+  //   ?cert=5-0158&domain=bu-…    a drill on one exam domain
   route('GET', /^\/api\/exam\/new$/, async ({ session, query }) => {
-    const track = query.get('track') || 'all';
-    const count = Math.min(Math.max(Number(query.get('count')) || 20, 5), 50);
-    const pool = curriculum.questionBank.filter((q) => track === 'all' || q.track === track);
-    const picked = shuffle(pool).slice(0, count).map((q) => ({ qid: q.id, order: shuffle(q.options.map((_, i) => i)) }));
-    session.exam = { id: crypto.randomBytes(8).toString('hex'), track, picked, startedAt: Date.now() };
+    const certId = query.get('cert');
+    let exam;
+    if (certId) {
+      const cert = curriculum.CERTS.find((c) => c.id === certId);
+      if (!cert) throw Object.assign(new Error('Unknown certification'), { status: 404 });
+      const domain = query.get('domain');
+      if (domain && !cert.domains.some((d) => d.id === domain)) throw Object.assign(new Error('That domain is not part of this exam'), { status: 400 });
+      const mode = domain ? 'drill' : query.get('mode') === 'quick' ? 'quick' : 'sim';
+      const count = mode === 'sim' ? cert.exam.questions : Math.min(Math.max(Number(query.get('count')) || 10, 5), 60);
+      const picked = learning.drawExam(curriculum, cert, { domain, count }).map((p) => ({ ...p, order: shuffle(curriculum.questionById.get(p.qid).options.map((_, i) => i)) }));
+      if (!picked.length) throw Object.assign(new Error('There are no questions for this yet.'), { status: 404 });
+      exam = {
+        track: null, cert: cert.id, domain: domain || null, mode, picked,
+        minutes: mode === 'sim' ? cert.exam.minutes : null, pass: cert.exam.pass,
+        title: domain ? `${cert.short} · ${curriculum.domainById.get(domain).title}` : `${cert.id === 'cloud' ? '' : `${cert.id} `}${cert.short}${mode === 'sim' ? ' — exam simulation' : ' — quick practice'}`,
+      };
+    } else {
+      const track = query.get('track') || 'all';
+      const count = Math.min(Math.max(Number(query.get('count')) || 20, 5), 50);
+      const pool = curriculum.questionBank.filter((q) => track === 'all' || q.track === track);
+      const picked = shuffle(pool).slice(0, count).map((q) => ({ qid: q.id, domain: null, order: shuffle(q.options.map((_, i) => i)) }));
+      const t = curriculum.TRACKS.find((x) => x.id === track);
+      exam = { track, cert: null, domain: null, mode: 'track', picked, minutes: null, pass: 70, title: t ? t.title : 'All tracks' };
+    }
+    session.exam = { id: crypto.randomBytes(8).toString('hex'), startedAt: Date.now(), ...exam };
     return {
-      examId: session.exam.id,
-      track,
-      questions: picked.map((p) => {
-        const q = curriculum.questionById.get(p.qid);
-        return { q: q.q, module: q.moduleTitle, options: p.order.map((i) => q.options[i]) };
-      }),
+      examId: session.exam.id, track: exam.track, cert: exam.cert, domain: exam.domain, mode: exam.mode, title: exam.title,
+      minutes: exam.minutes, pass: exam.pass, startedAt: session.exam.startedAt,
+      questions: exam.picked.map((p) => learning.publicQuestion(curriculum, p)),
     };
   });
 
@@ -562,26 +580,116 @@ function createApp(config) {
     const exam = session.exam;
     if (!exam || exam.id !== body.examId) throw Object.assign(new Error('This exam has expired. Start a new one.'), { status: 410 });
     const answers = Array.isArray(body.answers) ? body.answers : [];
-    const review = exam.picked.map((p, i) => {
-      const q = curriculum.questionById.get(p.qid);
-      const chosen = answers[i] === null || answers[i] === undefined ? null : Number(answers[i]);
-      const correctIdx = p.order.indexOf(q.answer);
-      return { q: q.q, module: q.moduleTitle, options: p.order.map((k) => q.options[k]), chosen, answer: correctIdx, correct: chosen === correctIdx, explain: q.explain };
-    });
+    const review = exam.picked.map((p, i) => learning.gradeQuestion(curriculum, p, answers[i]));
     const correct = review.filter((r) => r.correct).length;
-    const record = { at: new Date().toISOString(), track: exam.track, total: review.length, correct, minutes: Math.round((Date.now() - exam.startedAt) / 60000) };
+    const minutes = Math.round((Date.now() - exam.startedAt) / 60000);
+    const score = Math.round((100 * correct) / review.length);
+    const byDomain = {};
+    for (const r of review) {
+      if (!r.domain) continue;
+      byDomain[r.domain] = byDomain[r.domain] || { total: 0, correct: 0 };
+      byDomain[r.domain].total++;
+      if (r.correct) byDomain[r.domain].correct++;
+    }
+    const record = {
+      at: new Date().toISOString(), track: exam.track || exam.cert, cert: exam.cert, domain: exam.domain, mode: exam.mode, title: exam.title,
+      total: review.length, correct, minutes, pass: exam.pass, passed: score >= exam.pass,
+      overtime: !!(exam.minutes && minutes > exam.minutes), byDomain,
+    };
     progress.exams.unshift(record);
-    progress.exams = progress.exams.slice(0, 30);
-    store.log(progress, `Practice exam (${exam.track}): ${correct}/${review.length}`);
+    progress.exams = progress.exams.slice(0, 60);
+    learning.recordDomains(progress, review);
+    store.log(progress, `${exam.mode === 'sim' ? 'Exam simulation' : 'Practice exam'} (${exam.title}): ${correct}/${review.length}${exam.cert ? ` — ${record.passed ? 'pass' : 'below the pass mark'}` : ''}`);
     session.exam = null;
     const byModule = {};
     for (const r of review) {
-      byModule[r.module] = byModule[r.module] || { module: r.module, total: 0, correct: 0 };
+      byModule[r.module] = byModule[r.module] || { module: r.module, domain: r.domain, total: 0, correct: 0 };
       byModule[r.module].total++;
       if (r.correct) byModule[r.module].correct++;
     }
-    return { record, review, weakest: Object.values(byModule).filter((x) => x.correct < x.total).sort((a, b) => a.correct / a.total - b.correct / b.total).slice(0, 4) };
+    return { record, review, weakest: Object.values(byModule).filter((x) => x.correct < x.total).sort((a, b) => a.correct / a.total - b.correct / b.total).slice(0, 5) };
   }, { save: true });
+
+  // ------------------------------------------------ learning paths
+
+  route('GET', /^\/api\/paths$/, async ({ progress }) => ({
+    roadmap: curriculum.ROADMAP,
+    paths: curriculum.CERTS.map((c) => learning.pathSummary(curriculum, progress, c)),
+    focus: progress.settings.cert || null,
+  }));
+
+  route('GET', /^\/api\/paths\/([\w-]+)$/, async ({ progress, params }) => {
+    const cert = curriculum.CERTS.find((c) => c.id === params[0]);
+    if (!cert) throw Object.assign(new Error('Unknown certification'), { status: 404 });
+    return { path: learning.pathDetail(curriculum, progress, cert), focus: progress.settings.cert || null };
+  });
+
+  route('POST', /^\/api\/paths\/([\w-]+)\/focus$/, async ({ progress, params }) => {
+    const cert = curriculum.CERTS.find((c) => c.id === params[0]);
+    if (!cert && params[0] !== 'none') throw Object.assign(new Error('Unknown certification'), { status: 404 });
+    progress.settings.cert = cert ? cert.id : null;
+    return { focus: progress.settings.cert };
+  }, { save: true });
+
+  route('GET', /^\/api\/practice$/, async ({ progress }) => ({ paths: curriculum.PRACTICE.map((p) => learning.practiceView(curriculum, progress, p, false)) }));
+
+  route('GET', /^\/api\/practice\/([\w-]+)$/, async ({ progress, params }) => {
+    const pp = curriculum.PRACTICE.find((p) => p.id === params[0]);
+    if (!pp) throw Object.assign(new Error('Unknown practice path'), { status: 404 });
+    return { path: learning.practiceView(curriculum, progress, pp, true) };
+  });
+
+  // ------------------------------------------------ handbook
+
+  const guideCard = (g, progress) => ({ id: g.id, title: g.title, summary: g.summary, area: g.area, level: g.level, minutes: g.minutes || null, domains: g.domains, tags: g.tags, read: !!progress.guides[g.id] });
+
+  route('GET', /^\/api\/guides$/, async ({ progress }) => ({
+    areas: curriculum.AREAS,
+    certs: curriculum.CERTS.map((c) => ({ id: c.id, short: c.short, color: c.color, domains: c.domains.map((d) => d.id) })),
+    domains: curriculum.publicDomains(),
+    guides: curriculum.guides.map((g) => guideCard(g, progress)),
+  }));
+
+  route('GET', /^\/api\/guides\/([\w-]+)$/, async ({ progress, params }) => {
+    const g = curriculum.guideById.get(params[0]);
+    if (!g) throw Object.assign(new Error('Unknown guide'), { status: 404 });
+    const sameArea = curriculum.guides.filter((x) => x.area === g.area);
+    const i = sameArea.indexOf(g);
+    const titleOf = (id) => { const x = curriculum.guideById.get(id); return x ? { id, title: x.title } : null; };
+    return {
+      guide: {
+        ...guideCard(g, progress), body: g.body, sources: g.sources || [], readAt: progress.guides[g.id] || null,
+        related: [...new Set([...g.related, ...curriculum.guides.filter((x) => x.related.includes(g.id)).map((x) => x.id)])].map(titleOf).filter(Boolean),
+        domainTitles: g.domains.map((d) => { const x = curriculum.domainById.get(d); return { id: d, cert: x.cert, title: x.title }; }),
+        moduleTitles: g.modules.map((m) => ({ id: m, title: curriculum.moduleById.get(m).title })),
+      },
+      prev: sameArea[i - 1] ? titleOf(sameArea[i - 1].id) : null,
+      next: sameArea[i + 1] ? titleOf(sameArea[i + 1].id) : null,
+      areaTitle: curriculum.AREAS[g.area],
+    };
+  });
+
+  route('POST', /^\/api\/guides\/([\w-]+)\/read$/, async ({ progress, params, body }) => {
+    const g = curriculum.guideById.get(params[0]);
+    if (!g) throw Object.assign(new Error('Unknown guide'), { status: 404 });
+    if (body.read === false) delete progress.guides[g.id];
+    else if (!progress.guides[g.id]) {
+      progress.guides[g.id] = new Date().toISOString();
+      store.log(progress, `Read the guide “${g.title}”`);
+    }
+    return { read: !!progress.guides[g.id] };
+  }, { save: true });
+
+  route('GET', /^\/api\/glossary$/, async () => ({
+    areas: curriculum.AREAS,
+    terms: curriculum.glossary.map((t) => ({ ...t, guideTitle: t.guide && curriculum.guideById.has(t.guide) ? curriculum.guideById.get(t.guide).title : null })),
+  }));
+
+  const searchIndex = learning.buildSearchIndex(curriculum);
+  route('GET', /^\/api\/search$/, async ({ query }) => {
+    const q = String(query.get('q') || '').slice(0, 200);
+    return { q, results: learning.search(searchIndex, q) };
+  });
 
   route('GET', /^\/api\/progress$/, async ({ progress }) => ({
     stats: stats(progress), exams: progress.exams, activity: progress.activity,
@@ -601,9 +709,10 @@ function createApp(config) {
     if (!session.user.isSysAdmin) throw Object.assign(new Error('Only Content Server system administrators can see the class roster.'), { status: 403 });
     const learners = store.all().map((p) => {
       const s = stats(p);
-      return { userId: p.userId, name: p.userName, displayName: p.displayName, xp: p.xp, level: s.level.name, done: s.done, total: s.total, tracks: s.tracks, lastSeenAt: p.lastSeenAt, bestExam: p.exams.reduce((b, e) => Math.max(b, Math.round((100 * e.correct) / e.total)), 0) || null };
+      return { userId: p.userId, name: p.userName, displayName: p.displayName, xp: p.xp, level: s.level.name, done: s.done, total: s.total, tracks: s.tracks, lastSeenAt: p.lastSeenAt, bestExam: p.exams.reduce((b, e) => Math.max(b, Math.round((100 * e.correct) / e.total)), 0) || null,
+        certs: curriculum.CERTS.map((c) => ({ id: c.id, short: c.short, readiness: learning.certProgress(curriculum, { ...p, guides: p.guides || {}, domains: p.domains || {} }, c).readiness })) };
     }).sort((a, b) => b.xp - a.xp);
-    return { learners };
+    return { learners, tracks: curriculum.TRACKS.map((t) => ({ id: t.id, title: t.title })) };
   });
 
   // ------------------------------------------------ dispatcher

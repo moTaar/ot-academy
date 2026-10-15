@@ -14,7 +14,7 @@
     "build:legacy": "node tools/build-legacy.js"
   },
   "devDependencies": {
-    "@babel/standalone": "^7.29.9",
+    "@babel/standalone": "^8.0.6",
     "acorn": "^8.19.0",
     "core-js-bundle": "^3.50.0",
     "regenerator-runtime": "^0.14.1",

@@ -1,0 +1,120 @@
+'use strict';
+// Glossary: everyday Content Server terms a business user meets (Business User
+// certification 5-0158). Original definitions; each links to the guide that explains it.
+
+module.exports = [
+  // ---------------------------------------------------------------- interfaces & structure
+  { term: "Node", def: "Any item stored in Content Server — folder, document, workflow map, wiki and so on. Every node has a permanent numeric ID, system metadata and its own permission list.", area: "user", guide: "bu-item-types" },
+  { term: "Node ID", def: "The unique number of a node, visible in its URL (objId= in Classic View, /nodes/ in Smart View). It never changes, even when the item is renamed or moved.", area: "user", guide: "bu-item-types" },
+  { term: "Container", def: "An item that holds other items, such as a folder, compound document, project, email folder, wiki or business workspace. New items copy their container's permissions.", area: "user", guide: "bu-item-types" },
+  { term: "Enterprise Workspace", def: "The shared root of an organisation's content. What each user sees inside it is controlled by permissions.", area: "user", guide: "bu-item-types" },
+  { term: "Personal Workspace", def: "A user's own branch of the tree (My Workspace in Classic View, “<name> Home” in Smart View), private by default. Used for drafts, personal queries and practice.", area: "user", guide: "bu-item-types" },
+  { term: "Smart View", def: "The modern, responsive browser interface of Content Server, built from perspectives and widgets, with inline and header action bars.", area: "user", guide: "bu-interfaces" },
+  { term: "Classic View", def: "The original browser interface, with the global menu bar, the Add Item menu and a Functions menu on every item.", area: "user", guide: "bu-interfaces" },
+  { term: "Enterprise Connect", def: "Desktop integration that brings Content Server into Windows Explorer, Outlook and Office; supports folder drag-and-drop, saving from Office, briefcases and offline work.", area: "user", guide: "bu-interfaces" },
+  { term: "Functions menu", def: "The per-item menu in Classic View listing only the commands the current user may perform on that item.", area: "user", guide: "bu-interfaces" },
+  { term: "Inline action bar", def: "The row of actions that appears in Smart View when you hover over or focus a single item.", area: "user", guide: "bu-interfaces" },
+  { term: "Header action bar", def: "The Smart View toolbar that appears above a list when one or more items are selected; it offers actions valid for all selected items.", area: "user", guide: "bu-interfaces" },
+  { term: "Multi-select buttons", def: "Classic View buttons (Copy, Move, Delete, Zip & Download, Zip & Email, Email Link, Print, Collect) that act on all ticked items.", area: "user", guide: "bu-organizing" },
+  { term: "Breadcrumb", def: "The navigation trail showing where an item sits in the hierarchy; select any level to go up. Classic View calls it the hyperlinked trail.", area: "user", guide: "bu-interfaces" },
+  { term: "Single sign-on", def: "Signing in to Content Server automatically with your network identity, provided through OpenText Directory Services.", area: "user", guide: "bu-interfaces" },
+
+  // ---------------------------------------------------------------- item types
+  { term: "Document", def: "One or more versions of an electronic file of any format, together with the metadata Content Server keeps about it.", area: "user", guide: "bu-adding-content" },
+  { term: "Text document", def: "A plain-text item written and edited with Content Server's built-in text editor.", area: "user", guide: "bu-adding-content" },
+  { term: "Shortcut", def: "A pointer to another item that always opens its current state. It grants no access the user does not already have on the original.", area: "user", guide: "bu-organizing" },
+  { term: "Generation", def: "A separate item that points to one specific version of a document (or one release/revision of a compound document) and protects that version from deletion.", area: "user", guide: "bu-versions" },
+  { term: "URL item", def: "An item storing a web address. Creating URL items is an item-creation privilege; shortcuts are preferred for links to Content Server items.", area: "user", guide: "bu-organizing" },
+  { term: "Compound document", def: "An ordered container of documents (and nested compound documents, shortcuts, generations) treated as one larger document, with a master element, releases and revisions.", area: "user", guide: "bu-compound-docs" },
+  { term: "Master document", def: "The element of a compound document that is always shown first, such as a cover letter or table of contents.", area: "user", guide: "bu-compound-docs" },
+  { term: "Release", def: "A major, read-only snapshot (1.0, 2.0…) of all elements of a compound document at a point in time.", area: "user", guide: "bu-compound-docs" },
+  { term: "Revision", def: "A minor snapshot (1.1, 1.2…) of a compound document, based on its latest release.", area: "user", guide: "bu-compound-docs" },
+  { term: "Email folder", def: "A folder designed for filed emails, with From, To, Subject, Sent Date and Received Date columns.", area: "user", guide: "bu-email" },
+  { term: "Email-enabled container", def: "A folder, compound document or project that has its own email address, so users can add content by sending email to it.", area: "user", guide: "bu-email" },
+  { term: "Virtual folder", def: "A saved faceted-browse selection together with its location; opening it re-applies the filters to current content.", area: "user", guide: "bu-metadata-display" },
+  { term: "Collection", def: "A shareable list of references to items stored anywhere, used to view them together and apply bulk actions. Its permissions do not change those of its members.", area: "collab", guide: "bu-collections" },
+  { term: "Favorite", def: "A personal bookmark to an item, shown on the Favorites page or tile. Favorites are private and cannot be shared.", area: "user", guide: "bu-personalize" },
+
+  // ---------------------------------------------------------------- versions & editing
+  { term: "Version", def: "A saved state of a document. Each change creates a new version; earlier versions stay available as history.", area: "user", guide: "bu-versions" },
+  { term: "Advanced versioning", def: "Major/minor version numbering (0.1, 1.0, 1.1…). Minor versions are drafts visible only to users with Reserve permission or higher.", area: "user", guide: "bu-versions" },
+  { term: "Minor version", def: "A work-in-progress version under advanced versioning, numbered with a decimal (0.1, 1.2). Read-only users cannot see it.", area: "user", guide: "bu-versions" },
+  { term: "Promote to Major", def: "Turning a minor version into the next major version. It cannot be undone.", area: "user", guide: "bu-versions" },
+  { term: "Version lock", def: "Protection set on a version so it cannot be deleted by version limits, purges or users.", area: "user", guide: "bu-versions" },
+  { term: "Version limit", def: "The maximum number of versions kept for a document (Max. Versions). The oldest unlocked, unreferenced version is deleted when a new one is added.", area: "user", guide: "bu-versions" },
+  { term: "Rendition", def: "An alternative file format, such as PDF, attached to a particular version of a document.", area: "user", guide: "bu-versions" },
+  { term: "Reserve", def: "Check-out: locks a document so only the person or group it is reserved to can add versions. Others can still view and download it.", area: "user", guide: "bu-reserve-edit" },
+  { term: "Office Editor", def: "OpenText client that opens Office documents from Content Server for editing, manages a local cache and uploads saved changes automatically.", area: "user", guide: "bu-reserve-edit" },
+  { term: "Briefcase", def: "An Enterprise Connect working folder on the local file system for editing documents away from Content Server and returning them to their original location.", area: "user", guide: "bu-interfaces" },
+
+  // ---------------------------------------------------------------- metadata
+  { term: "Metadata", def: "Information about an item rather than in it: system attributes recorded automatically, plus custom attributes and classifications.", area: "user", guide: "bu-categories" },
+  { term: "System attributes", def: "Metadata Content Server records automatically for every item, such as created date, modified date, creator, owner, size and MIME type.", area: "user", guide: "bu-advanced-search" },
+  { term: "Category", def: "A named set of custom attributes that can be applied to items, inherited from folders and used for search, columns, facets and reporting.", area: "user", guide: "bu-categories" },
+  { term: "Attribute", def: "A single custom metadata field in a category, such as a text, date, number, user or checkbox value. It can be required or multi-valued.", area: "user", guide: "bu-categories" },
+  { term: "Cascading attribute", def: "A table-key-lookup attribute whose list of valid values depends on the value chosen in another attribute, such as Country → State → City.", area: "user", guide: "bu-categories" },
+  { term: "Categories Volume", def: "The administrative volume where system-wide categories are stored. Categories used for columns and facets must live here.", area: "user", guide: "bu-categories" },
+  { term: "Incomplete Items", def: "A folder on a user's Assignments page holding items added without required attribute values; they stay unavailable to others until completed.", area: "user", guide: "bu-categories" },
+  { term: "Nickname", def: "A unique, memorable name for an item (default: its ID) usable in nickname searches and short links. No spaces, not purely numeric, up to 40 characters.", area: "user", guide: "bu-metadata-display" },
+  { term: "Multilingual metadata", def: "Item names and descriptions stored in several languages; each user sees the language chosen as their Metadata Language.", area: "user", guide: "bu-metadata-display" },
+  { term: "Custom column", def: "A browse-list column showing a system or category attribute, created by an administrator or knowledge manager in the Facets Volume.", area: "user", guide: "bu-metadata-display" },
+  { term: "Facet", def: "A grouping of metadata values (owner, type, an attribute) used to filter a browse view or search results without typing a query.", area: "user", guide: "bu-metadata-display" },
+  { term: "Content Filter", def: "The Classic View sidebar for faceted browsing, opened with the orange bar at the page edge; Smart View's equivalent is the Filter panel.", area: "user", guide: "bu-metadata-display" },
+
+  // ---------------------------------------------------------------- permissions & people
+  { term: "ACL", def: "Access control list: the users and groups with access to an item and what each may do, made of default access (Owner, Owner Group, Public Access) and assigned access.", area: "user", guide: "bu-permissions" },
+  { term: "Owner", def: "The ACL entry for the item's creator (changeable). On a folder, the owner permissions are what anyone who adds an item there receives on it.", area: "user", guide: "bu-permissions" },
+  { term: "Owner Group", def: "A default ACL entry for a group with its own permission set, often the knowledge managers of an area.", area: "user", guide: "bu-permissions" },
+  { term: "Public Access", def: "The default ACL entry covering every user whose account has the Public Access privilege.", area: "user", guide: "bu-permissions" },
+  { term: "See Contents", def: "The permission to open, view, download and copy an item or list a folder's contents — the practical read permission.", area: "user", guide: "bu-permissions" },
+  { term: "Edit Permissions", def: "The permission to open an item's Permissions page and change its ACL.", area: "user", guide: "bu-permissions" },
+  { term: "Work item permissions", def: "The simpler None, Read, Write, Administer model used by discussions, channels, task lists, polls and collections.", area: "collab", guide: "bu-permissions" },
+  { term: "Privilege", def: "A system-wide ability of a user — logging in, Public Access, creating certain item types, using tools — set by administrators, as opposed to per-item permissions.", area: "user", guide: "bu-users-groups" },
+  { term: "Department group", def: "The main group a user belongs to. Users can be members of many other groups, and groups can contain groups.", area: "user", guide: "bu-users-groups" },
+  { term: "eDiscovery rights", def: "A privilege that, with eDiscovery Mode switched on, lets a user see the contents of all items for search, browse and collection. Its use is audited.", area: "user", guide: "bu-permissions-inheritance" },
+  { term: "Permissions Explorer", def: "A tool that shows a branch of the hierarchy alongside the users, groups and permissions on each item, for reviewing and adjusting access in bulk.", area: "user", guide: "bu-permissions-inheritance" },
+  { term: "Apply to Sub-Items", def: "Option that pushes a permission (or category) change from a container down to the items already inside it.", area: "user", guide: "bu-permissions-inheritance" },
+
+  // ---------------------------------------------------------------- search
+  { term: "Slice", def: "A defined part of the search index — From Here, Enterprise, Enterprise [All Versions], Help or a custom area — that sets a search's scope.", area: "user", guide: "bu-search" },
+  { term: "Search filters", def: "Facets on a search results page listing common values in the results (author, type, date, category) for narrowing them.", area: "user", guide: "bu-search" },
+  { term: "Search form", def: "A saved framework of Advanced Search criteria and display options, with or without search terms, reused as a starting point.", area: "user", guide: "bu-advanced-search" },
+  { term: "Saved query", def: "A search saved as an item; selecting it re-runs the criteria on current content, and permissions on it control who may use it.", area: "user", guide: "bu-advanced-search" },
+  { term: "Snapshot", def: "A saved, unchanging list of search results as they were when saved.", area: "user", guide: "bu-advanced-search" },
+  { term: "Prospector", def: "A standing search that scans newly indexed content for matches and lists them, optionally emailing updates.", area: "user", guide: "bu-advanced-search" },
+  { term: "Hit highlighting", def: "Opening a search result with the search terms highlighted, with buttons to jump between hits.", area: "user", guide: "bu-search" },
+
+  // ---------------------------------------------------------------- collaboration
+  { term: "Short link", def: "A compact link to an item's properties or to open it, copied or emailed from its General properties; it can use the item's nickname.", area: "user", guide: "bu-email" },
+  { term: "Zip & Email", def: "Sends selected items as a zip file, either attached to the message or stored in Content Server and referenced by link.", area: "user", guide: "bu-email" },
+  { term: "Notification report", def: "One of a user's three scheduled reports collecting events they subscribed to, delivered on a page and optionally by email.", area: "collab", guide: "bu-notifications-pulse" },
+  { term: "Notification interest", def: "An event a user asks to be told about: general interests apply system-wide, specific interests are set on a particular item.", area: "collab", guide: "bu-notifications-pulse" },
+  { term: "Pulse", def: "Content Server's social layer: comments, replies, likes, status updates, mentions, private messages and following colleagues.", area: "collab", guide: "bu-notifications-pulse" },
+  { term: "Activity feed", def: "A stream of Pulse activity — content updates, comments, status updates — for the whole system, a container and its sub-tree, or a single item.", area: "collab", guide: "bu-notifications-pulse" },
+  { term: "Reminder", def: "A scheduled follow-up on an item with type, priority, assignees, due date, activation and escalation, tracked through Active, In Progress and Completed.", area: "collab", guide: "bu-reminders" },
+  { term: "Reminder type", def: "An administrator-defined reason for a reminder, grouped into reminder clients, with defaults such as assignees and escalation.", area: "collab", guide: "bu-reminders" },
+  { term: "Reminder substitute", def: "A user named in your reminder settings to receive and handle your reminders during a validity period.", area: "collab", guide: "bu-reminders" },
+  { term: "Escalation", def: "In a reminder, the alert sent to additional people before the due date if the reminder is still not completed.", area: "collab", guide: "bu-reminders" },
+  { term: "Wiki", def: "A container of linked, versioned web pages that a team writes and publishes together, with sidebars and a main (index) page.", area: "collab", guide: "bu-wikis" },
+  { term: "Wiki sidebar", def: "A panel shown beside the overview and every page of a wiki, for key facts, links or images.", area: "collab", guide: "bu-wikis" },
+  { term: "Main page", def: "The wiki page that opens first in Smart View (Classic View: index page), set with Set as Main page.", area: "collab", guide: "bu-wikis" },
+
+  // ---------------------------------------------------------------- workflows
+  { term: "Workflow instance", def: "A running copy of a workflow map created when someone initiates it, with its own steps and work package.", area: "collab", guide: "bu-workflows" },
+  { term: "Workflow step", def: "One unit of work in a workflow, assigned to a user or group (the performer), who completes it by choosing a disposition such as Approve or Send On.", area: "collab", guide: "bu-workflows" },
+  { term: "Workflow manager", def: "A user or group named in the map who monitors instances and, with the rights granted, reassigns steps or suspends, resumes, stops, archives and deletes workflows.", area: "collab", guide: "bu-workflows-manage" },
+  { term: "Workflow proxy", def: "A user who also receives your workflow assignments while you are away, set in your Workflow settings; one level deep and user-only.", area: "collab", guide: "bu-workflows" },
+  { term: "Delegate (workflow step)", def: "Handing one step to another user or group from the step itself, available when the map allows delegation.", area: "collab", guide: "bu-workflows" },
+  { term: "My Assignments", def: "The page or Smart View tile listing workflow steps and tasks assigned to you or your groups.", area: "collab", guide: "bu-workflows" },
+  { term: "Map View", def: "A graphical view of a running workflow: the active step framed in green, completed steps in blue.", area: "collab", guide: "bu-workflows-manage" },
+
+  // ---------------------------------------------------------------- viewing, perspectives, workspaces
+  { term: "Intelligent Viewing", def: "OpenText's browser-based universal viewer with markup, comments, redaction, compare and publishing tools.", area: "collab", guide: "bu-intelligent-viewing" },
+  { term: "Markup", def: "An annotation such as a highlight, shape, text box, stamp or note drawn in the viewer and stored as a layer apart from the document.", area: "collab", guide: "bu-intelligent-viewing" },
+  { term: "Redaction", def: "A box that hides sensitive content. It only removes the content once burned into a published copy.", area: "collab", guide: "bu-intelligent-viewing" },
+  { term: "Burn-in", def: "Flattening markups and redactions into a new output file, typically PDF, so they can no longer be removed from that copy.", area: "collab", guide: "bu-intelligent-viewing" },
+  { term: "Landing page", def: "The Smart View Home page a user sees after signing in, defined by a global landing page perspective.", area: "collab", guide: "bu-perspectives" },
+  { term: "Widget", def: "A tile in a Smart View perspective, such as Favorites, My Assignments, HTML Tile or Activity Feed.", area: "collab", guide: "bu-perspectives" },
+  { term: "HTML Tile", def: "A widget showing rich text, images and links written by the page editor, used for welcome messages on department pages.", area: "collab", guide: "bu-perspectives" },
+  { term: "Team lead", def: "In a business workspace, a role holder who can add and remove participants and assign them to roles without being an administrator.", area: "collab", guide: "bu-business-workspaces" },
+];

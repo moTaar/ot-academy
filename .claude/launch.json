@@ -8,6 +8,14 @@
         "server.js"
       ],
       "port": 8420
+    },
+    {
+      "name": "ui-preview",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "test/ui-preview.js"
+      ],
+      "port": 8420
     }
   ]
 }

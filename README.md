@@ -3,7 +3,7 @@
 CS Academy runs next to your OpenText Content Server 16.x and acts as an instructor:
 
 1. **It analyses the platform.** Through the Content Server REST API it walks the Enterprise and Personal workspaces, reads the volumes, categories, classifications, workflow maps, groups, object types you may create, and probes optional modules (Extended ECM business workspaces, records, communities…). The result is a *platform map* showing which functional areas exist on this server.
-2. **It gives assignments.** 116 missions across 31 modules in three tracks (Business User, Collaboration, Analyst & Administrator). The instructor always proposes the next sensible mission, tailored to what the scan found.
+2. **It gives assignments.** Missions in modules across eight tracks (Business User, Collaboration, Analyst & Administrator foundations, Business Administrator, System Administrator, Developer, Analyst & Solution Design, Business Workspaces). The instructor always proposes the next sensible mission, tailored to what the scan found.
 3. **It checks the work live.** Hands-on missions ("create a compound document with two chapters", "grant a group See Contents on 02 Review", "make a generation of Project Plan in 03 Final") are verified against the real server. When something is wrong the feedback is specific: *“Project Plan is there, but it is a Folder — not the kind of item this step asks for.”* When it is right, the result names the item it found (with its node ID) and links to it in Smart View and the Classic UI, so you can see it there yourself.
 
 It is **read-only**: the only calls it makes to Content Server are `POST /api/v1/auth` (sign-in) and `GET` requests. The learner does all the work in Content Server.
@@ -21,7 +21,27 @@ It works **only against a real Content Server**. There is no demo or offline mod
 
 A hands-on or investigation mission is completed **only** when every step was seen on the server. If Content Server doesn't return something a step needs, that step shows *couldn't verify* with the exact call and HTTP answer, and the mission stays open (skip it if the feature isn't available to you). If Content Server can't be reached, the check reports that error — it never turns into a result.
 
-There is also a **practice exam** mode (random questions from all modules, shuffled options, review at the end), **XP, levels and badges**, and a **class roster** for Content Server system administrators.
+There is also **XP, levels and badges**, and a **class roster** for Content Server system administrators.
+
+## Certification learning paths, handbook and exams
+
+CS Academy is also a study course and a reference for the OpenText Content Management (Content Server) certifications:
+
+| Certification | Exam | Questions · time · pass mark |
+|---|---|---|
+| Business User | 5-0158 | 40 · 60 min · 75% |
+| Business Administrator | 5-0159 | 45 · 60 min · 75% |
+| Administrator | 5-0156 | 60 · 90 min · 70% |
+| Developer | 5-0157 | 60 · 90 min · 70% |
+| Analyst | 5-0155 | 60 · 90 min · 70% |
+| Extended ECM (Content Server) Cloud Practitioner | — | short test · 80% |
+
+- **Learning paths** — one per certification, built from the official exam outline: the domains and their weights, the objectives, the guides and modules that teach each domain, a drill per domain, and the learner's readiness (what they covered, weighed against how they score). A **Business Workspaces** skill path (CS Academy's own, not an OpenText exam) covers workspaces end to end.
+- **Practice paths** — hands-on labs in the learner's own Content Server, in the order that builds something real: *Sandbox foundations* and the *Business workspaces lab* (category, classification, location, workspace type and template, then a workspace that is checked through REST).
+- **Handbook** — reference guides with step-by-step procedures (Smart View and Classic UI), diagrams drawn by the app (flows, trees, matrices, swimlanes, layers, cycles…), exam notes and sources; a **glossary**; and **search** across guides, terms, modules and missions. Meant to be opened at work as much as for study.
+- **Practice exams** — timed **exam simulations** with each exam's real length, time limit and pass mark, questions drawn across domains in proportion to their weight, multiple-response questions, flagging, and a review with explanations and the guide to reread; quick practice, domain drills, and knowledge checks by track.
+
+Exam facts and domains come from OpenText's Training Registry and Exam Outlines; where OpenText publishes no weights (Analyst, Cloud Practitioner) the app says the split is its own estimate. All lesson and guide text, diagrams and questions are original to this trainer; the certification policies themselves (such as the Cloud Practitioner guidelines) are only in OpenText's courses.
 
 ## Requirements
 
@@ -49,7 +69,7 @@ The trainer does not start until you tell it which Content Server to use — the
    - `http://localhost/otcs/cs.exe` (typical when running on the CS server)
    - `https://ecm.example.com/otcs/llisapi.dll` (IIS)
    - `http://ecm.example.com:8080/otcs/cs` (Tomcat)
-3. If learners reach Content Server at a different address than the trainer does, set `contentServer.publicUrl` to the address their browsers use. It is only used for “Open in Smart View / Classic UI” links.
+3. If learners reach Content Server at a different address than the trainer does, set `contentServer.publicUrl` to the address their browsers use. It is only used for “Open in Smart View / Classic UI” links. (Not needed when Content Server runs on the same machine as the trainer — see [Sign in from other devices](#sign-in-from-other-devices).)
 4. Start it:
 
 ```bash
@@ -62,15 +82,41 @@ At start-up the trainer calls `GET /api/v1/serverinfo` and prints whether a Cont
 
 Learners open `http://<server>:8420` and sign in with their normal Content Server credentials (OTDS users included — sign-in goes through `/api/v1/auth`).
 
+### Sign in from other devices
+
+The trainer listens on every network interface (`"host": "0.0.0.0"`), so laptops, tablets and phones on the same network can use it. Each device signs in on its own; a learner who signs in on two devices sees the same progress on both.
+
+1. Start it. The console lists the addresses other devices can use:
+
+   ```
+   CS Academy listening on http://localhost:8420
+     Other devices on the network sign in at: http://XECM038:8420  http://192.168.1.20:8420
+   ```
+
+2. **Windows Firewall** blocks those devices until a rule lets them in. Run this once (Windows asks for administrator rights):
+
+   ```bash
+   start.bat allow-network
+   ```
+
+   It adds the inbound rule *CS Academy (TCP 8420)* for the configured port. If Windows had created rules that block `node.exe` (it does that when its “allow access?” prompt is cancelled — and a block rule beats any allow rule), it lists them and offers to disable them. While the rule is missing, the trainer says so when it starts.
+3. On the other device, open one of the listed addresses. Use the IP address if the computer's name doesn't resolve there (phones usually can't resolve Windows computer names).
+
+Links to Content Server follow the device: when Content Server runs on the same machine as the trainer (`baseUrl` is `localhost` or this computer's name or address), a device that opened `http://192.168.1.20:8420` gets links to `http://192.168.1.20/otcs/…`, so “Open in Smart View” works there too. Set `contentServer.publicUrl` to use one fixed address for everyone instead.
+
+If the trainer runs in a virtual machine, other devices can only reach it when the VM's network adapter is bridged (or the host forwards port 8420 to it); with a NAT-only adapter only the host can.
+
+Passwords travel in clear text over plain HTTP, so on a network you don't trust, [serve it over HTTPS](#https-recommended).
+
 ### Configuration
 
 | Key | Default | Meaning |
 |---|---|---|
-| `port`, `host` | `8420`, `0.0.0.0` | Where the trainer listens |
+| `port`, `host` | `8420`, `0.0.0.0` | Where the trainer listens. `0.0.0.0`: all network interfaces (other devices can sign in); `127.0.0.1`: this computer only |
 | `contentServer.baseUrl` | *(required)* | Content Server URL used by the trainer. Never taken from `config.example.json` |
-| `contentServer.publicUrl` | same as `baseUrl` | Content Server URL used in links shown to learners |
+| `contentServer.publicUrl` | same as `baseUrl`, under the name each device used to reach the trainer when Content Server is on this machine | Content Server URL used in links shown to learners |
 | `contentServer.allowSelfSignedCerts` | `false` | Accept a self-signed HTTPS certificate on Content Server |
-| `contentServer.timeoutMs` | `20000` | Per-request timeout |
+| `contentServer.timeoutMs` | `20000` | Per-request timeout. In a mission check a call that takes longer is an error; in the platform scan and on the Connection page it is reported on its own row/area (as *unknown*), and the rest still runs |
 | `sandboxName` | `OT Academy` | Name of the training folder each learner creates in their Personal Workspace |
 | `scan.maxDepth` / `scan.maxNodes` | `2` / `1500` | How deep and how wide the platform scan goes |
 | `scan.concurrency` | `4` | Parallel requests during a scan |
@@ -109,6 +155,12 @@ nssm start CSAcademy
 
 ## Tailoring the curriculum
 
+Guides, question bank, glossary, lesson visuals, certifications and practice paths are plain data too — see [curriculum/CONTENT.md](curriculum/CONTENT.md). Check content without starting the server:
+
+```bash
+node tools/check-content.js
+```
+
 Missions live in `curriculum/track-*.js` as plain data. A hands-on mission looks like this:
 
 ```js
@@ -136,6 +188,8 @@ Runs an end-to-end test: the trainer in front of `test/mock-cs.js`, an in-memory
 
 ## Changing the front end
 
+To look at pages on a machine without a Content Server, `node test/ui-preview.js` runs the trainer in front of the test mock on port 8420 (sign in as `student`, any password). It is a development aid only: the trainer itself still has no demo mode.
+
 `public/app.js` and `public/styles.css` are the sources. After editing them (or `tools/ie11.css`), rebuild the Internet Explorer 11 version:
 
 ```bash
@@ -155,4 +209,4 @@ npm run build:legacy
 
 ## Sources
 
-Lesson topics follow the outlines of the OpenText courses *Managing Documents in Content Server 16.2* and *Collaborating in Content Server 16.2*, and the *Mastering OpenText Content Suite / Extended ECM* study plan. All lesson text, missions and questions in this app are original; the course workbooks are not included.
+Lesson topics follow the outlines of the OpenText courses *Managing Documents in Content Server 16.2* and *Collaborating in Content Server 16.2*, the *Mastering OpenText Content Suite / Extended ECM* study plan, OpenText's certification exam outlines (5-0155 to 5-0159 and Cloud Practitioner), OpenText Professional Services' CIS modeling approach and design guidelines, and OpenText's public documentation. All lesson text, guides, missions and questions in this app are original; the course workbooks are not included.

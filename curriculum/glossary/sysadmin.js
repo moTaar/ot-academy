@@ -1,0 +1,111 @@
+'use strict';
+// Glossary — System Administrator (5-0156) and platform architecture terms.
+// Definitions are original; see curriculum/CONTENT.md.
+
+module.exports = [
+  // ---------------------------------------------------------------- platform
+  { term: 'Gateway', def: 'The small web-tier program that passes requests from the web server to the Content Server engine and streams the answer back: `llisapi.dll` (ISAPI, IIS), `cs.exe` (CGI) or the servlet for Java application servers.', area: 'platform', guide: 'sa-architecture' },
+  { term: 'llisapi.dll', def: 'The ISAPI gateway used when Content Server runs behind Microsoft IIS. It is faster than the CGI gateway because it stays loaded in the web server.', area: 'platform', guide: 'sa-architecture' },
+  { term: 'cs.exe', def: 'The CGI gateway of Content Server. It works with any web server but starts a process per request; the name also appears in classic Content Server URLs.', area: 'platform', guide: 'sa-architecture' },
+  { term: 'Content Server engine', def: 'The main server process (often called llserver) that loads the OScript modules and serves requests with a pool of worker threads; it enforces permissions, runs SQL and talks to storage.', area: 'platform', guide: 'sa-architecture' },
+  { term: 'Worker thread', def: 'One of the fixed number of threads in the Content Server engine. Each handles one request at a time; when all are busy, new requests wait. Each writes its own thread log.', area: 'platform', guide: 'sa-architecture' },
+  { term: '<OTHOME>', def: 'Shorthand for the Content Server installation home folder, which contains config (opentext.ini), logs, module, staging, patch and support folders.', area: 'platform', guide: 'sa-architecture' },
+  { term: 'Support directory', def: 'The `support` folder of the installation holding static web files (scripts, styles, icons, Smart View). The web server publishes it, usually as /img/.', area: 'platform', guide: 'sa-architecture' },
+  { term: 'Front-end instance', def: 'A Content Server instance in a cluster that serves user requests behind the load balancer and usually does not run agents.', area: 'sysadmin', guide: 'sa-cluster-performance' },
+  { term: 'Back-end instance', def: 'A Content Server instance in a cluster reserved for background work — agents, Distributed Agent workers, search administration — and kept out of the user pool.', area: 'sysadmin', guide: 'sa-cluster-performance' },
+  { term: 'Cluster (Content Server)', def: 'Several Content Server instances sharing one database, content store and search grid, running identical versions, modules and patches, usually behind a load balancer.', area: 'sysadmin', guide: 'sa-cluster-performance' },
+  { term: 'Session affinity', def: 'Load-balancer setting (sticky sessions) that keeps a user on the same Content Server instance for the duration of a session.', area: 'sysadmin', guide: 'sa-cluster-performance' },
+  { term: 'Cluster Management', def: 'An area of the Content Server 16.x Administration pages that, with a Cluster Agent on each host, applied updates and patches across all instances of a cluster.', area: 'sysadmin', guide: 'sa-cluster-performance' },
+
+  // ---------------------------------------------------------------- admin & config
+  { term: 'Administration pages', def: 'The server-wide configuration pages opened with `?func=admin.index`, protected by System Administration rights and the separate administration password.', area: 'sysadmin', guide: 'sa-admin-pages' },
+  { term: 'Administration password', def: 'A password set during installation that must be entered to open the Administration pages, in addition to the user’s own sign-in.', area: 'sysadmin', guide: 'sa-admin-pages' },
+  { term: 'opentext.ini', def: 'The main per-instance configuration file in `<OTHOME>/config`, in INI format with sections such as [general] and [options]; read at start-up, so most changes need a restart.', area: 'sysadmin', guide: 'sa-opentext-ini' },
+  { term: 'KIni', def: 'Database table holding configuration values (section, keyword, value) shared by every instance of a cluster, in contrast to the per-instance opentext.ini file.', area: 'sysadmin', guide: 'sa-opentext-ini' },
+  { term: 'System Report', def: 'A text report generated from the Administration pages listing version, modules, patches, database, OS and configuration details; the standard attachment for OpenText Support cases.', area: 'sysadmin', guide: 'sa-logging' },
+  { term: 'Staging folder', def: 'The folder in `<OTHOME>` where module installers place modules; Module Administration ▸ Install Modules lists and installs them from there.', area: 'sysadmin', guide: 'sa-modules-patches' },
+  { term: 'Install Modules', def: 'Module Administration page that installs optional modules found in the staging folder and then asks for a restart.', area: 'sysadmin', guide: 'sa-modules-patches' },
+  { term: 'Patch folder', def: 'The `patch` folder of `<OTHOME>` into which hot-fix files are copied; the engine loads them at the next start-up.', area: 'sysadmin', guide: 'sa-modules-patches' },
+  { term: 'Hot fix', def: 'A small OpenText patch that fixes a specific issue in a specific version, usually superseded by the next update.', area: 'sysadmin', guide: 'sa-modules-patches' },
+  { term: 'Content Server update', def: 'A newer build of the product (for example a 16.2.x update or a quarterly release) installed with an installer and possibly upgrading the database; it includes earlier fixes.', area: 'sysadmin', guide: 'sa-modules-patches' },
+  { term: 'Agent (Content Server)', def: 'A scheduled background task inside the engine, such as the notification agent or module-specific agents; in clusters usually confined to back-end instances.', area: 'sysadmin', guide: 'sa-agents' },
+  { term: 'Notification agent', def: 'The agent that collects recorded events matching users’ notification interests and sends digests by email through the configured SMTP server.', area: 'sysadmin', guide: 'sa-agents' },
+  { term: 'Distributed Agent', def: 'Framework introduced with Content Server 16 that splits long-running work (large copies, moves, deletes, purges, permission propagation) into tasks processed by workers on permitted instances.', area: 'sysadmin', guide: 'sa-agents' },
+  { term: 'Distributed Agent dashboard', def: 'Administration page showing Distributed Agent workers per instance and queued, running and failed tasks.', area: 'sysadmin', guide: 'sa-agents' },
+  { term: 'Performance Analyzer (OTPA)', def: 'OpenText tool that reads summary timing logs to show slow request types, busy users, peaks and thread usage.', area: 'sysadmin', guide: 'sa-cluster-performance' },
+
+  // ---------------------------------------------------------------- storage & database
+  { term: 'Storage provider', def: 'A destination where Content Server writes file content — the database itself, an External File Store, Archive Center or another provider — returning a reference that is stored with the version.', area: 'sysadmin', guide: 'sa-storage' },
+  { term: 'External File Store (EFS)', def: 'Storage provider that keeps document content as files in a numbered folder structure on a file system or share; file names on disk are not the original names.', area: 'sysadmin', guide: 'sa-storage' },
+  { term: 'Storage rule', def: 'An ordered condition (type, MIME type, size, location, attribute value…) that sends new versions to a storage provider; the first matching rule wins and changes do not move existing content.', area: 'sysadmin', guide: 'sa-storage' },
+  { term: 'Archive Center', def: 'OpenText archiving server storing content in logical archives with retention, compression and replication; Content Server uses it through an archive storage provider.', area: 'sysadmin', guide: 'sa-storage' },
+  { term: 'Logical archive', def: 'In Archive Center, a named storage area with its own retention, compression, encryption and media settings.', area: 'sysadmin', guide: 'sa-storage' },
+  { term: 'Verify Content Server database', def: 'A Database Administration function that runs consistency checks on core tables and reports problems such as orphan rows; run it before upgrades and after restores.', area: 'sysadmin', guide: 'sa-database-backup' },
+
+  // ---------------------------------------------------------------- search
+  { term: 'Search grid', def: 'The set of search processes — data flow, partitions with Index and Search Engines, Search Federator — running outside the engine under Admin servers.', area: 'sysadmin', guide: 'sa-search-architecture' },
+  { term: 'Admin server', def: 'The search supervisor process (otadmin, default port 5858) on each search host that starts, stops and monitors search processes; installed as the Content Server Admin service.', area: 'sysadmin', guide: 'sa-search-architecture' },
+  { term: 'System Object Volume', def: 'Volume reached from Search Administration that holds the objects representing search processes, data sources, partitions and search managers.', area: 'sysadmin', guide: 'sa-search-admin' },
+  { term: 'Enterprise data source', def: 'The search data source that indexes the items stored in Content Server, with its own data flow, partition map and search manager.', area: 'sysadmin', guide: 'sa-search-architecture' },
+  { term: 'Data flow', def: 'The chain of indexing processes (Extractor, Document Conversion, Update Distributor) connected by iPools that turns item changes into index updates.', area: 'sysadmin', guide: 'sa-search-architecture' },
+  { term: 'Extractor', def: 'Data-flow process that reads indexing events queued by Content Server and collects each item’s metadata and content for indexing.', area: 'sysadmin', guide: 'sa-search-architecture' },
+  { term: 'Document Conversion Server (DCS)', def: 'Data-flow process that converts files (Office, PDF, email, archives…) into indexable text with format filters; files it cannot convert are indexed with metadata only.', area: 'sysadmin', guide: 'sa-search-architecture' },
+  { term: 'iPool', def: 'Interchange pool: a folder through which one search process hands numbered batches to the next. A growing iPool shows where an indexing backlog is.', area: 'sysadmin', guide: 'sa-search-architecture' },
+  { term: 'Update Distributor', def: 'Data-flow process that sends converted batches to the Index Engines, deciding which partition receives each new or updated object.', area: 'sysadmin', guide: 'sa-search-architecture' },
+  { term: 'Index Engine', def: 'The process that writes a partition’s index files from the batches it receives from the Update Distributor.', area: 'sysadmin', guide: 'sa-search-architecture' },
+  { term: 'Search Engine', def: 'The process that answers queries from a partition’s index files.', area: 'sysadmin', guide: 'sa-search-architecture' },
+  { term: 'Search Federator', def: 'The process that receives a query from Content Server, sends it to every Search Engine and merges their results.', area: 'sysadmin', guide: 'sa-search-architecture' },
+  { term: 'Partition (search)', def: 'One slice of the search index with its own Index Engine and Search Engine; modes such as read-write, update-only and read-only control whether it accepts new objects and updates.', area: 'sysadmin', guide: 'sa-search-architecture' },
+  { term: 'Partition map', def: 'The search object listing the partitions of a data source and their engines.', area: 'sysadmin', guide: 'sa-search-architecture' },
+  { term: 'Region (search)', def: 'A named indexed field in the search index, such as a system attribute (names beginning OT) or a category attribute.', area: 'sysadmin', guide: 'sa-search-architecture' },
+  { term: 'Index verification', def: 'A search maintenance function that compares what the database says should be indexed with the index contents and finds missing or stale objects.', area: 'sysadmin', guide: 'sa-search-admin' },
+  { term: 'DTreeNotify', def: 'Queue table in which Content Server records indexing events for the Extractor; a steadily growing row count indicates that extraction is not keeping up.', area: 'sysadmin', guide: 'sa-search-architecture' },
+
+  // ---------------------------------------------------------------- schema
+  { term: 'DTree', def: 'The core table (a view over DTreeCore on version 16 and later) with one row per item: DataID, ParentID, SubType, Name, owner, dates and current version number.', area: 'sysadmin', guide: 'sa-schema-tour' },
+  { term: 'DataID', def: 'The unique numeric identifier of an item (node) in DTree; called DocID in DVersData and ID in LLAttrData.', area: 'sysadmin', guide: 'sa-schema-tour' },
+  { term: 'SubType', def: 'DTree column identifying the item type, for example 0 folder, 144 document, 131 category, 299 LiveReport.', area: 'sysadmin', guide: 'sa-schema-tour' },
+  { term: 'DVersData', def: 'Table with one row per document version: DocID, Version, file name, MIME type, size, dates and the storage provider reference.', area: 'sysadmin', guide: 'sa-schema-tour' },
+  { term: 'ProviderData', def: 'Table describing each storage provider reference — which provider holds a version’s content and the information needed to find it.', area: 'sysadmin', guide: 'sa-schema-tour' },
+  { term: 'KUAF', def: 'Table of users and groups (Type 0 = user, 1 = group) with name, department group, privileges and a deleted flag; maintained by the OTDS push connector.', area: 'sysadmin', guide: 'sa-schema-tour' },
+  { term: 'KUAFChildren', def: 'Table of direct group memberships: ID is the group, ChildID the member user or group.', area: 'sysadmin', guide: 'sa-schema-tour' },
+  { term: 'DTreeACL', def: 'Table of item permissions: DataID, RightID (user or group), ACLType (owner, owner group, public, assigned) and a Permissions bit mask.', area: 'sysadmin', guide: 'sa-schema-tour' },
+  { term: 'LLAttrData', def: 'Table storing category attribute values per item, category, attribute and entry in typed value columns (ValStr, ValInt, ValDate…).', area: 'sysadmin', guide: 'sa-schema-tour' },
+  { term: 'CatRegionMap', def: 'Table mapping category attributes to the names of their search regions.', area: 'sysadmin', guide: 'sa-schema-tour' },
+  { term: 'DAuditNew', def: 'Table of audited events with item, event name (AuditStr), performer, user and date; it grows with every audited event.', area: 'sysadmin', guide: 'sa-schema-tour' },
+  { term: 'DTreeAncestors', def: 'Table listing every ancestor of every item, used to query whole subtrees without recursion.', area: 'sysadmin', guide: 'sa-sql-recipes' },
+  { term: 'WSubWorkTask', def: 'Workflow table holding the steps (tasks) of each workflow sub-work, with performer, status and dates; related to WWork (instances) and WSubWork (sub-works).', area: 'sysadmin', guide: 'sa-schema-tour' },
+  { term: 'LiveReport', def: 'A Content Server item that stores a SQL query and shows its result as a table or chart, with typed inputs (%1, %2…) and optional sub-reports; results are not permission-filtered unless the SQL does it.', area: 'sysadmin', guide: 'sa-livereports' },
+  { term: 'Sub-report', def: 'A LiveReport linked from a column of another LiveReport, receiving the row’s value as its input for drill-down.', area: 'sysadmin', guide: 'sa-livereports' },
+
+  // ---------------------------------------------------------------- logging
+  { term: 'Thread log', def: 'Per-thread engine log recording each request handled, with timings, errors and OScript tracebacks; the first log for an error on a page.', area: 'sysadmin', guide: 'sa-logging' },
+  { term: 'Connect log', def: 'Engine log of the SQL statements each thread sent to the database, with elapsed times and database errors; used to find slow queries.', area: 'sysadmin', guide: 'sa-logging' },
+  { term: 'Summary timing log', def: 'Engine log with one line per request and its duration, used for performance trends and read by Performance Analyzer.', area: 'sysadmin', guide: 'sa-logging' },
+  { term: 'Debug level', def: 'The logging level set in opentext.ini (debug key in [general]) or on the logging pages; higher levels write more detailed logs.', area: 'sysadmin', guide: 'sa-opentext-ini' },
+  { term: 'wantLogs', def: 'An [options] flag in opentext.ini that switches engine logging on; often combined with wantVerbose for more detail when OpenText Support requests it.', area: 'sysadmin', guide: 'sa-opentext-ini' },
+
+  // ---------------------------------------------------------------- otds
+  { term: 'OTDS', def: 'OpenText Directory Services: the identity service that synchronises users and groups, controls access to OpenText applications, pushes users into them, authenticates and provides single sign-on.', area: 'sysadmin', guide: 'sa-otds-concepts' },
+  { term: 'User partition', def: 'An OTDS container of users and groups: synchronized from AD/LDAP, non-synchronized (maintained in OTDS), or the system partition.', area: 'sysadmin', guide: 'sa-otds-concepts' },
+  { term: 'Synchronized user partition', def: 'An OTDS partition kept in step with Active Directory or LDAP through a connection, search bases, filters, attribute mappings and change monitoring; passwords stay in the directory.', area: 'sysadmin', guide: 'sa-otds-sync' },
+  { term: 'Non-synchronized user partition', def: 'An OTDS partition whose users and groups are created and maintained directly in OTDS, typical for partners and service accounts.', area: 'sysadmin', guide: 'sa-otds-sync' },
+  { term: 'Resource (OTDS)', def: 'The OTDS representation of one application, such as a Content Server system, with a resource ID, attribute mappings and optionally a push connector.', area: 'sysadmin', guide: 'sa-otds-resource' },
+  { term: 'Resource ID', def: 'Unique identifier of an OTDS resource; Content Server needs it, with the OTDS URL, to activate its integration.', area: 'sysadmin', guide: 'sa-otds-resource' },
+  { term: 'Access role', def: 'An OTDS object listing the partitions, groups and users allowed to use a resource; only members are pushed to the application and may sign in.', area: 'sysadmin', guide: 'sa-otds-concepts' },
+  { term: 'Push connector', def: 'The OTDS connector that creates, updates and disables users and groups in an application’s own user store — for Content Server, in KUAF.', area: 'sysadmin', guide: 'sa-otds-resource' },
+  { term: 'Consolidation', def: 'OTDS action that reconciles a partition with its directory or a resource with its application and fixes differences; used after filter or mapping changes.', area: 'sysadmin', guide: 'sa-otds-sync' },
+  { term: 'Authentication handler', def: 'An OTDS component that authenticates users in a given way — HTTP Negotiate (Kerberos), SAML 2.0, OAuth/OpenID Connect, password — tried in priority order.', area: 'sysadmin', guide: 'sa-otds-sso' },
+  { term: 'Single sign-on (SSO)', def: 'Signing in once (to Windows or an identity provider) and being trusted by every OpenText application that shares the same OTDS.', area: 'sysadmin', guide: 'sa-otds-sso' },
+  { term: 'Integrated Windows authentication', def: 'Silent sign-in with the Kerberos ticket of the Windows session, provided in OTDS by the HTTP Negotiate handler; requires an SPN and browser trust.', area: 'sysadmin', guide: 'sa-otds-sso' },
+  { term: 'SPN', def: 'Service Principal Name, such as HTTP/otds.example.com, registered once in the domain on the account used for Kerberos; missing or duplicate SPNs break integrated Windows authentication.', area: 'sysadmin', guide: 'sa-otds-sso' },
+  { term: 'SAML 2.0', def: 'Federation standard in which an external identity provider (ADFS, Entra ID, Okta…) authenticates the user and sends OTDS a signed assertion.', area: 'sysadmin', guide: 'sa-otds-sso' },
+  { term: 'otadmin@otds.admin', def: 'The built-in OTDS administrator account; on Content Server 16.x it is mapped to the Content Server Admin user.', area: 'sysadmin', guide: 'sa-otds-resource' },
+  { term: 'License key (OTDS)', def: 'Product licence held in OTDS from version 16 onwards and associated with the resource that uses it.', area: 'sysadmin', guide: 'sa-otds-concepts' },
+
+  // ---------------------------------------------------------------- otscm
+  { term: 'System Center Manager (OTSCM)', def: 'OpenText application that automates installing, patching and updating OpenText products from a central server, using agents on each managed host.', area: 'sysadmin', guide: 'sa-otscm' },
+  { term: 'OTSCM agent', def: 'Component installed on each managed host that discovers installed OpenText products and performs deployments for System Center Manager.', area: 'sysadmin', guide: 'sa-otscm' },
+  { term: 'Execution plan', def: 'In System Center Manager, a saved sequence of installation or update tasks with parameters that runs unattended, for example OTDS then Content Server then modules.', area: 'sysadmin', guide: 'sa-otscm' },
+  { term: 'Language pack', def: 'A package providing a translated user interface for a product version; deployable manually or with System Center Manager.', area: 'sysadmin', guide: 'sa-otscm' },
+];

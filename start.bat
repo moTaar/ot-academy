@@ -3,6 +3,8 @@ rem Start CS Academy.
 rem   start.bat                  run with config.json
 rem   start.bat --cs-url <url>   train against the Content Server at <url>
 rem   start.bat test             run the self-test (does not touch Content Server)
+rem   start.bat allow-network    let other devices through Windows Firewall (once;
+rem                              asks for administrator rights)
 rem
 rem Node.js: uses a portable copy next to this file if there is one - either a
 rem folder named "node" or the extracted Windows zip ("node-v22.x.x-win-x64")
@@ -24,9 +26,14 @@ if errorlevel 1 (
 )
 
 if /i "%~1"=="test" goto selftest
+if /i "%~1"=="allow-network" goto allownetwork
 "%NODE%" server.js %*
 exit /b %errorlevel%
 
 :selftest
 "%NODE%" test\smoke.js
+exit /b %errorlevel%
+
+:allownetwork
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\allow-network.ps1" -Node "%NODE%"
 exit /b %errorlevel%

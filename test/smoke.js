@@ -31,17 +31,26 @@ async function step(name, fn) {
   }
 }
 
-function browser(base) {
+// `host`: the name the browser uses for the trainer (as on another device),
+// sent as the Host header; the request itself still goes to `base`.
+function browser(base, { host } = {}) {
+  const { hostname, port } = new URL(base);
   let cookie = '';
-  return async function call(method, url, body) {
-    const res = await fetch(base + url, {
-      method,
-      headers: { 'Content-Type': 'application/json', 'X-CSA': '1', ...(cookie ? { Cookie: cookie } : {}) },
-      body: body ? JSON.stringify(body) : undefined,
+  return function call(method, url, body) {
+    const headers = { 'Content-Type': 'application/json', 'X-CSA': '1', ...(cookie ? { Cookie: cookie } : {}), ...(host ? { Host: host } : {}) };
+    return new Promise((resolve, reject) => {
+      const req = http.request({ hostname, port, method, path: url, headers }, (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+          const set = res.headers['set-cookie'];
+          if (set) cookie = set[0].split(';')[0];
+          try { resolve({ status: res.statusCode, body: JSON.parse(Buffer.concat(chunks).toString('utf8')) }); } catch (e) { reject(e); }
+        });
+      });
+      req.on('error', reject);
+      req.end(body ? JSON.stringify(body) : undefined);
     });
-    const set = res.headers.get('set-cookie');
-    if (set) cookie = set.split(';')[0];
-    return { status: res.status, body: await res.json() };
   };
 }
 
@@ -73,10 +82,10 @@ function csLearner(csBase) {
 // An HTTP server that answers every request the same way.
 const stubServer = (status, type, body) => http.createServer((req, res) => { res.writeHead(status, { 'Content-Type': type }); res.end(body); });
 
-function appFor(baseUrl, dataDir) {
+function appFor(baseUrl, dataDir, { timeoutMs = 5000, publicUrl = '' } = {}) {
   return createApp({
     port: 0, host: '127.0.0.1', sandboxName: 'OT Academy', dataDir, sessionHours: 1,
-    contentServer: { baseUrl, timeoutMs: 5000 }, scan: { maxDepth: 3, maxNodes: 500, concurrency: 3 }, tls: {},
+    contentServer: { baseUrl, publicUrl, timeoutMs }, scan: { maxDepth: 3, maxNodes: 500, concurrency: 3 }, tls: {},
   });
 }
 
@@ -98,10 +107,10 @@ async function main() {
 
   const check = async (id, inputs) => (await call('POST', `/api/missions/${id}/check`, { inputs })).body;
   // A second trainer (own browser session) in front of another server.
-  const trainerFor = async (baseUrl) => {
-    const srv = http.createServer(appFor(baseUrl, dataDir).handle);
+  const trainerFor = async (baseUrl, opts = {}) => {
+    const srv = http.createServer(appFor(baseUrl, opts.dataDir || dataDir, opts).handle);
     extraServers.push(srv);
-    return browser(`http://127.0.0.1:${await listen(srv)}`);
+    return browser(`http://127.0.0.1:${await listen(srv)}`, opts);
   };
 
   console.log('CS Academy smoke test');
@@ -232,6 +241,59 @@ async function main() {
     assert.equal(scan.features.classifications.status, 'detected');
     assert.equal(scan.user.isSysAdmin, false);
     assert.ok(scan.notes.length >= 3);
+  });
+
+  await step('a Content Server call that never answers doesn\'t stop the scan: it is named and its area shows as unknown', async () => {
+    mock.state.slow = [/^\/api\/v2\/search$/, /^\/api\/v1\/nodes\/\d+\/addablenodetypes$/];
+    try {
+      const slow = await trainerFor(csBase, { timeoutMs: 400, dataDir: path.join(dataDir, 'slow') });
+      assert.equal((await slow('POST', '/api/login', { username: 'student', password: 'x' })).status, 200);
+      const r = await slow('POST', '/api/scan');
+      assert.equal(r.status, 200, JSON.stringify(r.body));
+      const s = r.body.scan;
+      assert.equal(s.features.search.status, 'unknown');
+      assert.match(s.features.search.evidence[0], /did not answer GET \/api\/v2\/search within/);
+      assert.ok(s.slowCalls.endpoints.includes('/api/v2/search'));
+      assert.ok(s.notes.some((n) => /took longer than/.test(n)));
+      assert.equal(s.categories.length, 3);
+      // Not being answered is never evidence that an area is missing.
+      for (const [key, f] of Object.entries(s.features)) {
+        if (scan.features[key].status === 'detected') assert.notEqual(f.status, 'not-detected', key);
+      }
+      assert.ok(Object.values(s.features).some((f) => f.status === 'unknown' && /which item types you may add/.test(f.evidence[0])));
+      // The Connection page shows the slow call on its row and still reports the rest.
+      const conn = await slow('GET', '/api/connection');
+      assert.equal(conn.status, 200, JSON.stringify(conn.body));
+      const row = conn.body.rows.find((x) => x.area === 'Search');
+      assert.equal(row.ok, false);
+      assert.equal(row.detail, 'Content Server did not answer GET /api/v2/search within 400 ms');
+      assert.ok(conn.body.rows.find((x) => x.area === 'Your groups').ok);
+
+      // Mission checks stay strict: there a timeout is an error, never a result.
+      mock.state.slow = [/^\/api\/v1\/volumes\/142$/];
+      const c = await slow('POST', '/api/missions/u01-sandbox/check', {});
+      assert.equal(c.status, 504);
+      assert.match(c.body.error, /did not answer GET \/api\/v1\/volumes\/142 within/);
+      assert.equal((await slow('GET', '/api/progress')).body.stats.xp, 0);
+    } finally {
+      mock.state.slow = [];
+    }
+  });
+
+  await step('another device gets Content Server links under the name it used to reach the trainer', async () => {
+    const device = `http://192.0.2.10:${mockPort}/otcs/cs.exe`;
+    const phone = browser(`http://127.0.0.1:${appPort}`, { host: '192.0.2.10:8420' });
+    assert.equal((await phone('GET', '/api/health')).body.csUrl, device);
+    const login = await phone('POST', '/api/login', { username: 'student', password: 'x' });
+    assert.equal(login.status, 200);
+    assert.equal(login.body.cs.url, device);
+    const m = await phone('GET', '/api/missions/u01-sandbox');
+    assert.equal(m.body.mission.links.smart, `${device}/app/nodes/${personal}`);
+    // This computer's browser keeps the configured address...
+    assert.equal((await call('GET', '/api/session')).body.cs.url, csBase);
+    // ...and a configured contentServer.publicUrl is used on every device.
+    const fixed = await trainerFor(csBase, { publicUrl: 'https://ecm.example.com/otcs/cs.exe', host: '192.0.2.10:8420' });
+    assert.equal((await fixed('GET', '/api/health')).body.csUrl, 'https://ecm.example.com/otcs/cs.exe');
   });
 
   await step('teacher proposes the first mission', async () => {
@@ -550,6 +612,106 @@ async function main() {
     assert.equal(r.body.record.correct, 10);
     const again = await call('POST', '/api/exam/submit', { examId: e.body.examId, answers });
     assert.equal(again.status, 410);
+  });
+
+  // The right answer(s) for a question as the browser shows it (shuffled options).
+  const rightAnswer = (qq) => {
+    const orig = [...curriculum.questionById.values()].find((b) => b.q === qq.q && b.options.length === qq.options.length && b.options.every((o) => qq.options.includes(o)));
+    assert.ok(orig, `question not found: ${qq.q}`);
+    const idx = (a) => qq.options.indexOf(orig.options[a]);
+    return Array.isArray(orig.answer) ? orig.answer.map(idx) : idx(orig.answer);
+  };
+
+  await step('certification simulation: real length, time limit and pass mark; no answers sent', async () => {
+    const cert = curriculum.CERTS.find((c) => c.id === '5-0158');
+    const e = await call('GET', '/api/exam/new?cert=5-0158');
+    assert.equal(e.status, 200);
+    assert.equal(e.body.mode, 'sim');
+    assert.equal(e.body.minutes, cert.exam.minutes);
+    assert.equal(e.body.pass, cert.exam.pass);
+    const pool = new Set(cert.domains.flatMap((d) => curriculum.domainPool.get(d.id)));
+    assert.equal(e.body.questions.length, Math.min(cert.exam.questions, pool.size));
+    assert.ok(e.body.questions.every((qq) => qq.domain && cert.domains.some((d) => d.id === qq.domain)));
+    const text = JSON.stringify(e.body);
+    assert.equal(text.includes('"answer"') || text.includes('"explain"'), false);
+    const r = await call('POST', '/api/exam/submit', { examId: e.body.examId, answers: e.body.questions.map(rightAnswer) });
+    assert.equal(r.body.record.correct, e.body.questions.length);
+    assert.equal(r.body.record.passed, true);
+    assert.equal(Object.values(r.body.record.byDomain).reduce((a, d) => a + d.total, 0), e.body.questions.length);
+    const p = await call('GET', '/api/paths/5-0158');
+    assert.ok(p.body.path.readiness > 0);
+    assert.equal(p.body.path.sims, 1);
+    assert.equal(p.body.path.bestSim, 100);
+  });
+
+  await step('domain drill only asks about that domain; a wrong answer counts as wrong', async () => {
+    const e = await call('GET', '/api/exam/new?cert=5-0158&domain=bu-permissions&count=5');
+    assert.equal(e.body.mode, 'drill');
+    assert.ok(e.body.questions.length > 0 && e.body.questions.length <= 5);
+    assert.ok(e.body.questions.every((qq) => qq.domain === 'bu-permissions'));
+    const answers = e.body.questions.map(rightAnswer);
+    answers[0] = Array.isArray(answers[0]) ? [answers[0][0]] : (answers[0] + 1) % e.body.questions[0].options.length;
+    const r = await call('POST', '/api/exam/submit', { examId: e.body.examId, answers });
+    assert.equal(r.body.record.correct, e.body.questions.length - 1);
+    assert.equal(r.body.review[0].correct, false);
+    assert.equal((await call('GET', '/api/exam/new?cert=5-0158&domain=ba-transport')).status, 400);
+    assert.equal((await call('GET', '/api/exam/new?cert=nope')).status, 404);
+  });
+
+  await step('multiple-response questions need exactly the right set of answers', async () => {
+    const learning = require('../lib/learning');
+    const cur = {
+      questionById: new Map([['x', { q: 'Which two? (Choose two.)', options: ['a', 'b', 'c', 'd'], answer: [0, 2], explain: 'e' }]]),
+      domainById: new Map(), guideById: new Map(),
+    };
+    const p = { qid: 'x', domain: null, order: [2, 0, 3, 1] }; // a and c are shown at 1 and 0
+    assert.equal(learning.gradeQuestion(cur, p, [1, 0]).correct, true);
+    assert.equal(learning.gradeQuestion(cur, p, [0]).correct, false);
+    assert.equal(learning.gradeQuestion(cur, p, [0, 1, 2]).correct, false);
+    assert.equal(learning.gradeQuestion(cur, p, null).correct, false);
+    assert.deepEqual(learning.gradeQuestion(cur, p, [1, 0]).answer, [0, 1]);
+    // Domain shares add up to the exam length and follow the weights.
+    for (const cert of curriculum.CERTS) {
+      const a = learning.apportion(cert.domains, cert.exam.questions);
+      assert.equal(a.reduce((s, x) => s + x.n, 0), cert.exam.questions);
+    }
+  });
+
+  await step('handbook: guides, reading progress, glossary and search', async () => {
+    const list = await call('GET', '/api/guides');
+    assert.ok(list.body.guides.length >= 1);
+    const id = list.body.guides[0].id;
+    const g = await call('GET', `/api/guides/${id}`);
+    assert.ok(Array.isArray(g.body.guide.body) && g.body.guide.body.length);
+    assert.equal(g.body.guide.read, false);
+    assert.equal((await call('POST', `/api/guides/${id}/read`, {})).body.read, true);
+    assert.equal((await call('GET', `/api/guides/${id}`)).body.guide.read, true);
+    assert.equal((await call('POST', `/api/guides/${id}/read`, { read: false })).body.read, false);
+    assert.equal((await call('GET', '/api/guides/no-such-guide')).status, 404);
+    assert.ok(Array.isArray((await call('GET', '/api/glossary')).body.terms));
+    const s = await call('GET', `/api/search?q=${encodeURIComponent(list.body.guides[0].title)}`);
+    assert.equal(s.body.results[0].id, id);
+    assert.deepEqual((await call('GET', '/api/search?q=')).body.results, []);
+    const paths = await call('GET', '/api/paths');
+    assert.deepEqual(paths.body.paths.map((x) => x.id).sort(), curriculum.CERTS.map((c) => c.id).sort());
+    assert.equal((await call('POST', '/api/paths/5-0159/focus', {})).body.focus, '5-0159');
+  });
+
+  await step('practice paths follow the learner\'s missions in their Content Server', async () => {
+    const list = await call('GET', '/api/practice');
+    assert.deepEqual(list.body.paths.map((p) => p.id), curriculum.PRACTICE.map((p) => p.id));
+    const p = await call('GET', '/api/practice/sandbox');
+    const first = p.body.path.stages[0].missions[0];
+    assert.equal(first.id, 'u01-sandbox');
+    assert.equal(first.status, 'done');
+    assert.ok(p.body.path.done >= 1 && p.body.path.done < p.body.path.total);
+    assert.ok(p.body.path.next && p.body.path.next.id !== 'u01-sandbox');
+    assert.equal((await call('GET', '/api/practice/nope')).status, 404);
+    // The workspaces skill path draws on the 5-0159 domains it includes.
+    const ws = curriculum.CERTS.find((c) => c.id === 'workspaces');
+    for (const d of ws.domains) for (const x of d.includes || []) {
+      for (const qid of curriculum.domainPool.get(x).filter((id) => id.startsWith('bank:'))) assert.ok(curriculum.domainPool.get(d.id).includes(qid));
+    }
   });
 
   await step('progress is stored per Content Server', async () => {

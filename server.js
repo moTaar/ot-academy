@@ -4,6 +4,7 @@
 //   node server.js                  use config.json
 //   node server.js --config x       use another config file
 //   node server.js --cs-url <url>   train against this Content Server
+//   start.bat allow-network         let other devices through Windows Firewall
 //
 // There is no demo or offline mode: every check reads the real Content Server
 // the trainer is configured for.
@@ -13,6 +14,8 @@ const path = require('path');
 const http = require('http');
 const https = require('https');
 const crypto = require('crypto');
+const os = require('os');
+const { execFile } = require('child_process');
 
 const { CSClient, CSError } = require('./lib/cs-client');
 const { CSApi } = require('./lib/cs-api');
@@ -21,6 +24,7 @@ const { verifyMission } = require('./lib/verifier');
 const { diagnose } = require('./lib/diagnostics');
 const { Store } = require('./lib/store');
 const curriculum = require('./curriculum');
+const learning = require('./lib/learning');
 
 const LEVELS = [
   { name: 'Novice', xp: 0 },
@@ -30,7 +34,7 @@ const LEVELS = [
   { name: 'Expert', xp: 1700 },
   { name: 'Master', xp: 2400 },
 ];
-const TRACK_ORDER = ['user', 'collab', 'admin'];
+const TRACK_ORDER = curriculum.TRACKS.map((t) => t.id);
 const QUIZ_PASS_RATIO = 0.6;
 
 // ---------------------------------------------------------------- config
@@ -82,6 +86,35 @@ function loadConfig(argv) {
   return cfg;
 }
 
+// ---------------------------------------------------------------- network
+
+const LOOPBACK = /^(localhost|127(?:\.\d+){3}|\[::1\])$/i;
+
+// This computer's IPv4 addresses that other devices can use (no loopback or
+// self-assigned 169.254.x.x ones).
+function networkAddresses() {
+  const out = [];
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const a of list || []) {
+      if ((a.family === 'IPv4' || a.family === 4) && !a.internal && !a.address.startsWith('169.254.')) out.push(a.address);
+    }
+  }
+  return out;
+}
+
+function isThisComputer(host) {
+  const me = os.hostname().toLowerCase();
+  if (LOOPBACK.test(host) || host === me || host.startsWith(`${me}.`)) return true;
+  const bare = host.replace(/^\[|\]$/g, '');
+  return Object.values(os.networkInterfaces()).some((list) => (list || []).some((a) => a.address.toLowerCase() === bare));
+}
+
+// Whether the Windows Firewall rule that start.bat allow-network
+// (tools/allow-network.ps1) creates for this port exists.
+const hasFirewallRule = (port) => new Promise((resolve) => {
+  execFile('netsh', ['advfirewall', 'firewall', 'show', 'rule', `name=CS Academy (TCP ${port})`], { windowsHide: true, timeout: 15000 }, (err) => resolve(!err));
+});
+
 // ---------------------------------------------------------------- helpers
 
 function levelFor(xp) {
@@ -91,14 +124,7 @@ function levelFor(xp) {
   return { name: LEVELS[idx].name, index: idx, xp, floor: LEVELS[idx].xp, next: next ? { name: next.name, xp: next.xp } : null };
 }
 
-function shuffle(a) {
-  const arr = a.slice();
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = crypto.randomInt(i + 1);
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr;
-}
+const { shuffle } = learning;
 
 const isResolved = (st) => st && (st.status === 'done' || st.status === 'skipped');
 const isDone = (st) => st && st.status === 'done';
@@ -159,6 +185,21 @@ function nextMission(progress) {
 function createApp(config) {
   const client = new CSClient(config.contentServer);
   const publicUrl = (config.contentServer.publicUrl || config.contentServer.baseUrl).replace(/\/+$/, '');
+  // Where a learner's browser finds Content Server: contentServer.publicUrl,
+  // else baseUrl. When baseUrl is this very computer, a browser on another
+  // device can't use a name like "localhost", but it can reach Content Server
+  // under the name it used to reach the trainer — so links use that name.
+  const csHost = new URL(publicUrl).hostname.toLowerCase();
+  const csOnThisComputer = !config.contentServer.publicUrl && isThisComputer(csHost);
+  const publicUrlFor = (req) => {
+    if (!csOnThisComputer || !req.headers.host) return publicUrl;
+    let host;
+    try { host = new URL(`http://${req.headers.host}`).hostname.toLowerCase(); } catch { return publicUrl; }
+    if (LOOPBACK.test(host) || host === csHost) return publicUrl;
+    const u = new URL(publicUrl);
+    u.hostname = host;
+    return u.href.replace(/\/+$/, '');
+  };
   const store = new Store(path.resolve(__dirname, config.dataDir), client.baseUrl);
   const legacy = store.legacyFiles();
   if (legacy.length) {
@@ -183,13 +224,14 @@ function createApp(config) {
       displayName: session.user.displayName,
       category: scan && scan.categories[0] ? scan.categories[0].name : 'any category available to you',
       group: scan && scan.groups[0] ? scan.groups[0].name : 'a group you belong to',
-      csUrl: publicUrl,
-      smartUrl: `${publicUrl}/app`,
+      csUrl: session.publicUrl,
+      smartUrl: `${session.publicUrl}/app`,
     };
   };
 
-  const linksFor = (key, progress) => {
+  const linksFor = (key, session, progress) => {
     if (!key) return null;
+    const publicUrl = session.publicUrl;
     if (key === 'personal') {
       const v = progress.lastScan && progress.lastScan.volumes.find((x) => x.key === 'personal');
       return { classic: `${publicUrl}?func=ll&objtype=142&objAction=browse`, smart: v && v.id ? `${publicUrl}/app/nodes/${v.id}` : `${publicUrl}/app` };
@@ -200,12 +242,12 @@ function createApp(config) {
   };
 
   // Where a learner can see, in Content Server itself, the item a check looked at.
-  const nodeLinks = (n) => ({
+  const nodeLinks = (n, publicUrl) => ({
     smart: `${publicUrl}/app/nodes/${n.id}`,
     classic: `${publicUrl}?func=ll&objId=${n.id}&objAction=${n.container ? 'browse' : 'properties'}`,
   });
 
-  const csInfo = (session) => ({ url: publicUrl, version: session.csVersion || null });
+  const csInfo = (session) => ({ url: session.publicUrl, version: session.csVersion || null });
 
   const missionView = (m, session, progress) => {
     const vars = varsFor(session, progress);
@@ -214,7 +256,7 @@ function createApp(config) {
       ...curriculum.publicMission(m, vars),
       state: st,
       availability: missionAvailability(m, progress),
-      links: linksFor(m.open, progress),
+      links: linksFor(m.open, session, progress),
     };
   };
 
@@ -290,8 +332,8 @@ function createApp(config) {
     }
   }
 
-  route('GET', /^\/api\/health$/, async () => ({
-    ok: true, csUrl: publicUrl, sandboxName: config.sandboxName, missions: curriculum.missionById.size, cs: await client.probe(),
+  route('GET', /^\/api\/health$/, async ({ req }) => ({
+    ok: true, csUrl: publicUrlFor(req), sandboxName: config.sandboxName, missions: curriculum.missionById.size, tracks: curriculum.TRACKS.length, guides: curriculum.guides.length, cs: await client.probe(),
   }), { auth: false });
 
   route('POST', /^\/api\/login$/, async ({ req, body, res }) => {
@@ -308,7 +350,7 @@ function createApp(config) {
       if (e.code === 'BAD_LOGIN') { a.count++; loginAttempts.set(ip, a); }
       throw e;
     }
-    const session = { sid: crypto.randomBytes(32).toString('hex'), ticket, createdAt: Date.now(), lastSeen: Date.now() };
+    const session = { sid: crypto.randomBytes(32).toString('hex'), ticket, createdAt: Date.now(), lastSeen: Date.now(), publicUrl: publicUrlFor(req) };
     const api = new CSApi(client, session);
     const me = await api.me();
     const info = await api.serverInfo();
@@ -325,7 +367,7 @@ function createApp(config) {
     store.log(progress, 'Signed in');
     store.save(progress);
     res.setHeader('Set-Cookie', setCookie(session.sid, Math.floor(SESSION_MS / 1000)));
-    return { user: session.user, needsScan: !progress.lastScan, csUrl: publicUrl, cs: csInfo(session), sandboxName: config.sandboxName };
+    return { user: session.user, needsScan: !progress.lastScan, csUrl: session.publicUrl, cs: csInfo(session), sandboxName: config.sandboxName };
   }, { auth: false });
 
   route('POST', /^\/api\/logout$/, async ({ session, res }) => {
@@ -334,7 +376,7 @@ function createApp(config) {
     return { ok: true };
   });
 
-  route('GET', /^\/api\/session$/, async ({ session }) => ({ user: session.user, csUrl: publicUrl, cs: csInfo(session), sandboxName: config.sandboxName }));
+  route('GET', /^\/api\/session$/, async ({ session }) => ({ user: session.user, csUrl: session.publicUrl, cs: csInfo(session), sandboxName: config.sandboxName }));
 
   route('GET', /^\/api\/overview$/, async ({ session, progress }) => {
     const next = nextMission(progress);
@@ -346,7 +388,7 @@ function createApp(config) {
       next: next ? { ...missionView(next, session, progress), moduleTitle: curriculum.moduleOfMission.get(next.id).title } : null,
       scan: progress.lastScan ? { scannedAt: progress.lastScan.scannedAt, notes: progress.lastScan.notes, server: progress.lastScan.server, counts: progress.lastScan.counts, inventoryTotal: progress.lastScan.inventory.total } : null,
       activity: progress.activity.slice(0, 8),
-      csUrl: publicUrl,
+      csUrl: session.publicUrl,
     };
   });
 
@@ -389,15 +431,15 @@ function createApp(config) {
     session.user.isSysAdmin = scan.user.isSysAdmin;
     if (scan.server.version) session.csVersion = scan.server.version;
     return { scan };
-  }, { prepare: ({ session }) => analyze(new CSApi(client, session), config) });
+  }, { prepare: ({ session }) => analyze(new CSApi(client, session, { tolerateTimeouts: true }), config) });
 
   route('GET', /^\/api\/scan$/, async ({ progress }) => ({ scan: progress.lastScan }));
 
   // Live report of what each Content Server endpoint the trainer uses returns.
   route('GET', /^\/api\/connection$/, async ({ session, prepared: report }) => {
-    for (const r of report.rows) if (r.node) r.node.links = nodeLinks(r.node);
-    return { ...report, trainerUrl: client.baseUrl, publicUrl, cs: csInfo(session), user: session.user };
-  }, { prepare: ({ session }) => diagnose(new CSApi(client, session), config) });
+    for (const r of report.rows) if (r.node) r.node.links = nodeLinks(r.node, session.publicUrl);
+    return { ...report, trainerUrl: client.baseUrl, publicUrl: session.publicUrl, cs: csInfo(session), user: session.user };
+  }, { prepare: ({ session }) => diagnose(new CSApi(client, session, { tolerateTimeouts: true }), config) });
 
   const award = (progress, m, method, xp, extra = {}) => {
     const prev = progress.missions[m.id] || { attempts: 0 };
@@ -427,7 +469,7 @@ function createApp(config) {
       found: {},
     };
     const result = await verifyMission(m, ctx);
-    for (const r of result.results) if (r.node) r.node.links = nodeLinks(r.node);
+    for (const r of result.results) if (r.node) r.node.links = nodeLinks(r.node, session.publicUrl);
     Object.assign(progress.refs, result.captured);
 
     const st = progress.missions[m.id] || { attempts: 0 };
@@ -494,19 +536,43 @@ function createApp(config) {
     return { mission: missionView(m, session, progress), stats: stats(progress) };
   }, { save: true });
 
+  // Practice exams. Three kinds:
+  //   ?track=user&count=20        knowledge-check questions of a track (or all)
+  //   ?cert=5-0158                certification simulation: the real exam's
+  //                               question count, time limit and pass mark,
+  //                               domains weighted as in the exam outline
+  //   ?cert=5-0158&mode=quick     the same mix, fewer questions, no timer
+  //   ?cert=5-0158&domain=bu-…    a drill on one exam domain
   route('GET', /^\/api\/exam\/new$/, async ({ session, query }) => {
-    const track = query.get('track') || 'all';
-    const count = Math.min(Math.max(Number(query.get('count')) || 20, 5), 50);
-    const pool = curriculum.questionBank.filter((q) => track === 'all' || q.track === track);
-    const picked = shuffle(pool).slice(0, count).map((q) => ({ qid: q.id, order: shuffle(q.options.map((_, i) => i)) }));
-    session.exam = { id: crypto.randomBytes(8).toString('hex'), track, picked, startedAt: Date.now() };
+    const certId = query.get('cert');
+    let exam;
+    if (certId) {
+      const cert = curriculum.CERTS.find((c) => c.id === certId);
+      if (!cert) throw Object.assign(new Error('Unknown certification'), { status: 404 });
+      const domain = query.get('domain');
+      if (domain && !cert.domains.some((d) => d.id === domain)) throw Object.assign(new Error('That domain is not part of this exam'), { status: 400 });
+      const mode = domain ? 'drill' : query.get('mode') === 'quick' ? 'quick' : 'sim';
+      const count = mode === 'sim' ? cert.exam.questions : Math.min(Math.max(Number(query.get('count')) || 10, 5), 60);
+      const picked = learning.drawExam(curriculum, cert, { domain, count }).map((p) => ({ ...p, order: shuffle(curriculum.questionById.get(p.qid).options.map((_, i) => i)) }));
+      if (!picked.length) throw Object.assign(new Error('There are no questions for this yet.'), { status: 404 });
+      exam = {
+        track: null, cert: cert.id, domain: domain || null, mode, picked,
+        minutes: mode === 'sim' ? cert.exam.minutes : null, pass: cert.exam.pass,
+        title: domain ? `${cert.short} · ${curriculum.domainById.get(domain).title}` : `${cert.id === 'cloud' ? '' : `${cert.id} `}${cert.short}${mode === 'sim' ? ' — exam simulation' : ' — quick practice'}`,
+      };
+    } else {
+      const track = query.get('track') || 'all';
+      const count = Math.min(Math.max(Number(query.get('count')) || 20, 5), 50);
+      const pool = curriculum.questionBank.filter((q) => track === 'all' || q.track === track);
+      const picked = shuffle(pool).slice(0, count).map((q) => ({ qid: q.id, domain: null, order: shuffle(q.options.map((_, i) => i)) }));
+      const t = curriculum.TRACKS.find((x) => x.id === track);
+      exam = { track, cert: null, domain: null, mode: 'track', picked, minutes: null, pass: 70, title: t ? t.title : 'All tracks' };
+    }
+    session.exam = { id: crypto.randomBytes(8).toString('hex'), startedAt: Date.now(), ...exam };
     return {
-      examId: session.exam.id,
-      track,
-      questions: picked.map((p) => {
-        const q = curriculum.questionById.get(p.qid);
-        return { q: q.q, module: q.moduleTitle, options: p.order.map((i) => q.options[i]) };
-      }),
+      examId: session.exam.id, track: exam.track, cert: exam.cert, domain: exam.domain, mode: exam.mode, title: exam.title,
+      minutes: exam.minutes, pass: exam.pass, startedAt: session.exam.startedAt,
+      questions: exam.picked.map((p) => learning.publicQuestion(curriculum, p)),
     };
   });
 
@@ -514,26 +580,116 @@ function createApp(config) {
     const exam = session.exam;
     if (!exam || exam.id !== body.examId) throw Object.assign(new Error('This exam has expired. Start a new one.'), { status: 410 });
     const answers = Array.isArray(body.answers) ? body.answers : [];
-    const review = exam.picked.map((p, i) => {
-      const q = curriculum.questionById.get(p.qid);
-      const chosen = answers[i] === null || answers[i] === undefined ? null : Number(answers[i]);
-      const correctIdx = p.order.indexOf(q.answer);
-      return { q: q.q, module: q.moduleTitle, options: p.order.map((k) => q.options[k]), chosen, answer: correctIdx, correct: chosen === correctIdx, explain: q.explain };
-    });
+    const review = exam.picked.map((p, i) => learning.gradeQuestion(curriculum, p, answers[i]));
     const correct = review.filter((r) => r.correct).length;
-    const record = { at: new Date().toISOString(), track: exam.track, total: review.length, correct, minutes: Math.round((Date.now() - exam.startedAt) / 60000) };
+    const minutes = Math.round((Date.now() - exam.startedAt) / 60000);
+    const score = Math.round((100 * correct) / review.length);
+    const byDomain = {};
+    for (const r of review) {
+      if (!r.domain) continue;
+      byDomain[r.domain] = byDomain[r.domain] || { total: 0, correct: 0 };
+      byDomain[r.domain].total++;
+      if (r.correct) byDomain[r.domain].correct++;
+    }
+    const record = {
+      at: new Date().toISOString(), track: exam.track || exam.cert, cert: exam.cert, domain: exam.domain, mode: exam.mode, title: exam.title,
+      total: review.length, correct, minutes, pass: exam.pass, passed: score >= exam.pass,
+      overtime: !!(exam.minutes && minutes > exam.minutes), byDomain,
+    };
     progress.exams.unshift(record);
-    progress.exams = progress.exams.slice(0, 30);
-    store.log(progress, `Practice exam (${exam.track}): ${correct}/${review.length}`);
+    progress.exams = progress.exams.slice(0, 60);
+    learning.recordDomains(progress, review);
+    store.log(progress, `${exam.mode === 'sim' ? 'Exam simulation' : 'Practice exam'} (${exam.title}): ${correct}/${review.length}${exam.cert ? ` — ${record.passed ? 'pass' : 'below the pass mark'}` : ''}`);
     session.exam = null;
     const byModule = {};
     for (const r of review) {
-      byModule[r.module] = byModule[r.module] || { module: r.module, total: 0, correct: 0 };
+      byModule[r.module] = byModule[r.module] || { module: r.module, domain: r.domain, total: 0, correct: 0 };
       byModule[r.module].total++;
       if (r.correct) byModule[r.module].correct++;
     }
-    return { record, review, weakest: Object.values(byModule).filter((x) => x.correct < x.total).sort((a, b) => a.correct / a.total - b.correct / b.total).slice(0, 4) };
+    return { record, review, weakest: Object.values(byModule).filter((x) => x.correct < x.total).sort((a, b) => a.correct / a.total - b.correct / b.total).slice(0, 5) };
   }, { save: true });
+
+  // ------------------------------------------------ learning paths
+
+  route('GET', /^\/api\/paths$/, async ({ progress }) => ({
+    roadmap: curriculum.ROADMAP,
+    paths: curriculum.CERTS.map((c) => learning.pathSummary(curriculum, progress, c)),
+    focus: progress.settings.cert || null,
+  }));
+
+  route('GET', /^\/api\/paths\/([\w-]+)$/, async ({ progress, params }) => {
+    const cert = curriculum.CERTS.find((c) => c.id === params[0]);
+    if (!cert) throw Object.assign(new Error('Unknown certification'), { status: 404 });
+    return { path: learning.pathDetail(curriculum, progress, cert), focus: progress.settings.cert || null };
+  });
+
+  route('POST', /^\/api\/paths\/([\w-]+)\/focus$/, async ({ progress, params }) => {
+    const cert = curriculum.CERTS.find((c) => c.id === params[0]);
+    if (!cert && params[0] !== 'none') throw Object.assign(new Error('Unknown certification'), { status: 404 });
+    progress.settings.cert = cert ? cert.id : null;
+    return { focus: progress.settings.cert };
+  }, { save: true });
+
+  route('GET', /^\/api\/practice$/, async ({ progress }) => ({ paths: curriculum.PRACTICE.map((p) => learning.practiceView(curriculum, progress, p, false)) }));
+
+  route('GET', /^\/api\/practice\/([\w-]+)$/, async ({ progress, params }) => {
+    const pp = curriculum.PRACTICE.find((p) => p.id === params[0]);
+    if (!pp) throw Object.assign(new Error('Unknown practice path'), { status: 404 });
+    return { path: learning.practiceView(curriculum, progress, pp, true) };
+  });
+
+  // ------------------------------------------------ handbook
+
+  const guideCard = (g, progress) => ({ id: g.id, title: g.title, summary: g.summary, area: g.area, level: g.level, minutes: g.minutes || null, domains: g.domains, tags: g.tags, read: !!progress.guides[g.id] });
+
+  route('GET', /^\/api\/guides$/, async ({ progress }) => ({
+    areas: curriculum.AREAS,
+    certs: curriculum.CERTS.map((c) => ({ id: c.id, short: c.short, color: c.color, domains: c.domains.map((d) => d.id) })),
+    domains: curriculum.publicDomains(),
+    guides: curriculum.guides.map((g) => guideCard(g, progress)),
+  }));
+
+  route('GET', /^\/api\/guides\/([\w-]+)$/, async ({ progress, params }) => {
+    const g = curriculum.guideById.get(params[0]);
+    if (!g) throw Object.assign(new Error('Unknown guide'), { status: 404 });
+    const sameArea = curriculum.guides.filter((x) => x.area === g.area);
+    const i = sameArea.indexOf(g);
+    const titleOf = (id) => { const x = curriculum.guideById.get(id); return x ? { id, title: x.title } : null; };
+    return {
+      guide: {
+        ...guideCard(g, progress), body: g.body, sources: g.sources || [], readAt: progress.guides[g.id] || null,
+        related: [...new Set([...g.related, ...curriculum.guides.filter((x) => x.related.includes(g.id)).map((x) => x.id)])].map(titleOf).filter(Boolean),
+        domainTitles: g.domains.map((d) => { const x = curriculum.domainById.get(d); return { id: d, cert: x.cert, title: x.title }; }),
+        moduleTitles: g.modules.map((m) => ({ id: m, title: curriculum.moduleById.get(m).title })),
+      },
+      prev: sameArea[i - 1] ? titleOf(sameArea[i - 1].id) : null,
+      next: sameArea[i + 1] ? titleOf(sameArea[i + 1].id) : null,
+      areaTitle: curriculum.AREAS[g.area],
+    };
+  });
+
+  route('POST', /^\/api\/guides\/([\w-]+)\/read$/, async ({ progress, params, body }) => {
+    const g = curriculum.guideById.get(params[0]);
+    if (!g) throw Object.assign(new Error('Unknown guide'), { status: 404 });
+    if (body.read === false) delete progress.guides[g.id];
+    else if (!progress.guides[g.id]) {
+      progress.guides[g.id] = new Date().toISOString();
+      store.log(progress, `Read the guide “${g.title}”`);
+    }
+    return { read: !!progress.guides[g.id] };
+  }, { save: true });
+
+  route('GET', /^\/api\/glossary$/, async () => ({
+    areas: curriculum.AREAS,
+    terms: curriculum.glossary.map((t) => ({ ...t, guideTitle: t.guide && curriculum.guideById.has(t.guide) ? curriculum.guideById.get(t.guide).title : null })),
+  }));
+
+  const searchIndex = learning.buildSearchIndex(curriculum);
+  route('GET', /^\/api\/search$/, async ({ query }) => {
+    const q = String(query.get('q') || '').slice(0, 200);
+    return { q, results: learning.search(searchIndex, q) };
+  });
 
   route('GET', /^\/api\/progress$/, async ({ progress }) => ({
     stats: stats(progress), exams: progress.exams, activity: progress.activity,
@@ -553,9 +709,10 @@ function createApp(config) {
     if (!session.user.isSysAdmin) throw Object.assign(new Error('Only Content Server system administrators can see the class roster.'), { status: 403 });
     const learners = store.all().map((p) => {
       const s = stats(p);
-      return { userId: p.userId, name: p.userName, displayName: p.displayName, xp: p.xp, level: s.level.name, done: s.done, total: s.total, tracks: s.tracks, lastSeenAt: p.lastSeenAt, bestExam: p.exams.reduce((b, e) => Math.max(b, Math.round((100 * e.correct) / e.total)), 0) || null };
+      return { userId: p.userId, name: p.userName, displayName: p.displayName, xp: p.xp, level: s.level.name, done: s.done, total: s.total, tracks: s.tracks, lastSeenAt: p.lastSeenAt, bestExam: p.exams.reduce((b, e) => Math.max(b, Math.round((100 * e.correct) / e.total)), 0) || null,
+        certs: curriculum.CERTS.map((c) => ({ id: c.id, short: c.short, readiness: learning.certProgress(curriculum, { ...p, guides: p.guides || {}, domains: p.domains || {} }, c).readiness })) };
     }).sort((a, b) => b.xp - a.xp);
-    return { learners };
+    return { learners, tracks: curriculum.TRACKS.map((t) => ({ id: t.id, title: t.title })) };
   });
 
   // ------------------------------------------------ dispatcher
@@ -590,6 +747,7 @@ function createApp(config) {
         ctx.session = sid ? sessions.get(sid) : null;
         if (!ctx.session) return send(res, 401, { error: 'Please sign in.', code: 'NO_SESSION' });
         ctx.session.lastSeen = Date.now();
+        ctx.session.publicUrl = publicUrlFor(req);
         if (r.prepare) ctx.prepared = await r.prepare(ctx);
         out = await withLock(ctx.session.user.id, async () => {
           ctx.progress = store.load(ctx.session.user);
@@ -638,8 +796,18 @@ async function main() {
     : http.createServer(app.handle);
 
   server.listen(config.port, config.host, async () => {
-    const shown = config.host === '0.0.0.0' ? 'localhost' : config.host;
-    console.log(`CS Academy listening on ${useTls ? 'https' : 'http'}://${shown}:${config.port}`);
+    const proto = useTls ? 'https' : 'http';
+    const everywhere = !config.host || config.host === '0.0.0.0' || config.host === '::';
+    console.log(`CS Academy listening on ${proto}://${everywhere ? 'localhost' : config.host}:${config.port}`);
+    if (everywhere) {
+      console.log(`  Other devices on the network sign in at: ${[os.hostname(), ...networkAddresses()].map((h) => `${proto}://${h}:${config.port}`).join('  ')}`);
+      // Windows Firewall drops connections from other devices until a rule lets them in.
+      if (process.platform === 'win32' && !(await hasFirewallRule(config.port))) {
+        console.log('  If they can\'t connect, run "start.bat allow-network" once to let them through Windows Firewall (it asks for administrator rights).');
+      }
+    } else if (LOOPBACK.test(config.host)) {
+      console.log(`  Only this computer can open it: "host" is "${config.host}" in config.json. Set it to "0.0.0.0" to let other devices sign in.`);
+    }
     console.log(`Content Server: ${config.contentServer.baseUrl}`);
     const p = await app.client.probe();
     if (p.restApi) console.log(`[cs] The Content Server REST API is answering${p.version ? ` (version ${p.version})` : ''}.`);

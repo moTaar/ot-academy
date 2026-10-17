@@ -91,11 +91,39 @@ main#main { flex: 1 1 0%; width: auto; min-width: 0; }
 .crumbs a { margin: 0 6px; }
 .crumbs a:first-child { margin-left: 0; }
 
+/* handbook, learning paths, diagrams */
+.lesson-grid, .guide-grid { display: flex; align-items: flex-start; }
+.lesson-grid > :first-child, .guide-grid > :first-child { flex: 1 1 0%; min-width: 0; }
+.lesson-grid > :last-child { flex: 0 0 38%; margin-left: 16px; }
+.guide-grid > .guide-side { flex: 0 0 270px; margin-left: 20px; }
+.vg-grid, .cert-strip, .cmp { display: flex; flex-wrap: wrap; margin-right: -12px; }
+.vg-grid > * { flex: 0 0 auto; width: calc(50% - 16px); margin-right: 16px; }
+.vg-grid > .vg-wide { width: calc(100% - 16px); }
+.cert-strip > * { flex: 0 0 auto; width: 170px; margin: 0 10px 10px 0; }
+.cmp > * { flex: 1 1 0%; min-width: 0; margin: 0 12px 12px 0; }
+.flow > * { margin: 0 6px 6px 0; }
+.flow.vertical > * { margin: 0 0 6px; }
+.flow-node > svg, .callout > svg, .proc-head > svg, .tn > svg, .link-list a > svg, .flow-loop > svg { margin-right: 8px; }
+.rad-node, .rad-center { -ms-transform: translate(-50%, -50%); }
+.side-search > svg, .timer > svg, .chips .chip svg { margin-right: 6px; }
+.menu-path > * { margin: 0 6px 6px 0; }
+.domain-n { margin-right: 14px; }
+.cert-mini > svg { margin-right: 10px; }
+.mock > * { margin: 0 18px 12px 0; }
+.ladder > * { margin-right: 6px; }
+.tabset-bar button { margin-right: 4px; }
+.az a { margin: 0 4px 4px 0; }
+.layer-l { margin-right: 12px; }
+
+.ps-marker { margin-right: 14px; }
+
 /* narrow windows: stack the sidebar above the content */
 @media (max-width: 860px) {
   .shell { display: block; }
   .side { width: auto; min-height: 0; }
-  .mission-grid, .login { display: block; }
+  .mission-grid, .login, .lesson-grid, .guide-grid { display: block; }
+  .lesson-grid > :last-child, .guide-grid > .guide-side { margin: 16px 0 0; }
+  .vg-grid > * { width: calc(100% - 16px); }
   .mission-grid > .side-card { margin: 16px 0 0; }
   .grid { flex-wrap: wrap; }
   .grid.two > *, .grid.three > *, .grid.auto > * { flex: 0 0 auto; width: calc(100% - 16px); }

@@ -50,6 +50,10 @@ function createState() {
     unsupported: [/^\/api\/v2\/businessworkspacetypes$/],
     // Paths that fail with an internal server error (to test that errors never pass).
     broken: [],
+    // Paths that never answer (to test the trainer's timeout).
+    slow: [],
+    // [path regex, HTTP status, error text]: how a particular server version answers a path.
+    answers: [],
     // Every request for an endpoint this mock doesn't implement; the test expects none.
     unknown: [],
   };
